@@ -1,8 +1,7 @@
-// Local/default configuration.
-// Leave this empty for local-only mode. To enable private-link collaboration,
-// copy values from config.example.js after creating a Supabase project.
+// Cloud configuration for the Curriculum Mapping app.
+// The publishable key is safe for browser use; never add Supabase secret keys here.
 window.CURRICULUM_MAPPING_CONFIG = window.CURRICULUM_MAPPING_CONFIG || {
-  supabaseUrl: "",
-  supabaseAnonKey: "",
+  supabaseUrl: "https://sueakkvqiayozqpcweon.supabase.co",
+  supabaseAnonKey: "sb_publishable_Zg4U4tInfJ-QaQ5sb1nVBw_PtYD0gS7",
   syncIntervalMs: 4000
 };
