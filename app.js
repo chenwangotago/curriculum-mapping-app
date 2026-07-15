@@ -32,6 +32,7 @@
   const sampleData = {
     meta: {
       programme: "Example Humanities Programme",
+      workspaceTitle: "Example Humanities Programme Curriculum Mapping Workspace",
       department: "Te Kete Aronui",
       version: "Version 1",
       workshopDate: "2026-06-23",
@@ -209,6 +210,16 @@
     if (kind) element.classList.add(kind);
   }
 
+  function getWorkspaceTitle() {
+    const configuredTitle = String(state.meta.workspaceTitle || "").trim();
+    if (configuredTitle) return configuredTitle;
+
+    const programmeName = String(state.meta.programme || "").trim() || "Untitled Programme";
+    return /curriculum mapping workspace$/i.test(programmeName)
+      ? programmeName
+      : `${programmeName} Curriculum Mapping Workspace`;
+  }
+
   function toast(message) {
     const element = byId("toast");
     element.textContent = message;
@@ -310,12 +321,20 @@
       alert("Cloud collaboration is not configured yet. Add Supabase values to config.js first.");
       return;
     }
-    if (!confirm("Create a private online workspace from the current mapping data?")) return;
+
+    const defaultTitle = getWorkspaceTitle();
+    const titleInput = prompt("Name this online workspace/link:", defaultTitle);
+    if (titleInput === null) return;
+    const workspaceTitle = titleInput.trim() || defaultTitle;
+    state.meta.workspaceTitle = workspaceTitle;
+    renderHeader();
+
+    if (!confirm(`Create a private online workspace named "${workspaceTitle}" from the current mapping data?`)) return;
 
     try {
       setCloudStatus("Creating private link...");
       const { data, error } = await cloud.client.rpc("create_curriculum_workspace", {
-        title: state.meta.programme || "Untitled Programme",
+        title: workspaceTitle,
         initial_data: state
       });
       if (error) throw error;
@@ -446,6 +465,7 @@
   function renderHeader() {
     byId("programme-title").textContent = state.meta.programme || "Untitled Programme";
     byId("version-label").textContent = state.meta.version || "Working version";
+    document.title = getWorkspaceTitle();
   }
 
   function renderPlos() {
@@ -1070,6 +1090,7 @@
       title: "Programme Settings",
       fields: [
         { name: "programme", label: "Programme / major name", value: state.meta.programme, required: true },
+        { name: "workspaceTitle", label: "Workspace/link title", value: state.meta.workspaceTitle || getWorkspaceTitle() },
         { name: "department", label: "Department / school", value: state.meta.department },
         { name: "version", label: "Version label", value: state.meta.version },
         { name: "workshopDate", label: "Workshop date", value: state.meta.workshopDate, type: "date" },
@@ -1232,7 +1253,7 @@
     if (!canEditWorkspace()) return;
     if (!confirm("Start a new blank template? Export the current JSON first if you need a copy.")) return;
     state = {
-      meta: { programme: "Untitled Programme", department: "", version: "Working version", workshopDate: "", participants: "" },
+      meta: { programme: "Untitled Programme", workspaceTitle: "Untitled Programme Curriculum Mapping Workspace", department: "", version: "Working version", workshopDate: "", participants: "" },
       plos: [], papers: [], alignments: {}, notes: {}, pathways: [], connections: [], assessments: [], actions: []
     };
     selectedPaperId = null;

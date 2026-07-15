@@ -1,14 +1,15 @@
 -- Curriculum Mapping Workspace: private-link collaborative backend
 -- Run this in Supabase SQL Editor.
 
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
 
 create table if not exists public.curriculum_workspaces (
   id uuid primary key default gen_random_uuid(),
   slug text unique not null,
   title text not null default 'Untitled Programme',
-  edit_token text not null default encode(gen_random_bytes(24), 'hex'),
-  view_token text not null default encode(gen_random_bytes(24), 'hex'),
+  edit_token text not null default encode(extensions.gen_random_bytes(24), 'hex'),
+  view_token text not null default encode(extensions.gen_random_bytes(24), 'hex'),
   data jsonb not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -51,6 +52,7 @@ for each row execute function public.touch_updated_at();
 create or replace function public.make_workspace_slug(title text)
 returns text
 language plpgsql
+set search_path = public, extensions
 as $$
 declare
   base text;
@@ -61,7 +63,7 @@ begin
   if base = '' then
     base := 'programme';
   end if;
-  candidate := base || '-' || substr(encode(gen_random_bytes(5), 'hex'), 1, 8);
+  candidate := base || '-' || substr(encode(extensions.gen_random_bytes(5), 'hex'), 1, 8);
   return candidate;
 end;
 $$;
@@ -70,7 +72,7 @@ create or replace function public.create_curriculum_workspace(title text, initia
 returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   row curriculum_workspaces;
@@ -134,7 +136,7 @@ declare
 begin
   update public.curriculum_workspaces
   set data = next_data,
-      title = coalesce(next_data #>> '{meta,programme}', title)
+      title = coalesce(nullif(next_data #>> '{meta,workspaceTitle}', ''), nullif(next_data #>> '{meta,programme}', ''), title)
   where slug = workspace_slug
     and edit_token = access_token
     and archived_at is null
@@ -228,6 +230,8 @@ begin
 end;
 $$;
 
+grant usage on schema public to anon;
+grant usage on schema extensions to anon;
 grant execute on function public.create_curriculum_workspace(text, jsonb) to anon;
 grant execute on function public.load_curriculum_workspace(text, text) to anon;
 grant execute on function public.save_curriculum_workspace(text, text, jsonb) to anon;
