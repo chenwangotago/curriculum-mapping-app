@@ -393,10 +393,41 @@
     const configuredTitle = String(state.meta.workspaceTitle || "").trim();
     if (configuredTitle) return configuredTitle;
 
-    const programmeName = String(state.meta.programme || "").trim() || "Untitled Programme";
-    return /curriculum mapping workspace$/i.test(programmeName)
-      ? programmeName
-      : `${programmeName} Curriculum Mapping Workspace`;
+    return workspaceTitleForProgramme(state.meta.programme);
+  }
+
+  function workspaceTitleForProgramme(programmeName) {
+    const name = String(programmeName || "").trim() || "Untitled Programme";
+    return /curriculum mapping workspace$/i.test(name)
+      ? name
+      : `${name} Curriculum Mapping Workspace`;
+  }
+
+  function programmeNameValue(value) {
+    return String(value || "").trim() || "Untitled Programme";
+  }
+
+  function blankWorkspaceState(programmeName, wording = getWording()) {
+    const name = programmeNameValue(programmeName);
+    return normaliseState({
+      meta: {
+        programme: name,
+        workspaceTitle: workspaceTitleForProgramme(name),
+        department: "",
+        version: "Working version",
+        workshopDate: "",
+        participants: ""
+      },
+      plos: [],
+      papers: [],
+      alignments: {},
+      notes: {},
+      pathways: [],
+      connections: [],
+      assessments: [],
+      actions: [],
+      wording: normaliseWording(wording)
+    });
   }
 
   function toast(message) {
@@ -505,44 +536,51 @@
       return;
     }
 
-    const defaultTitle = getWorkspaceTitle();
-    const titleInput = prompt("Name this online workspace/link:", defaultTitle);
-    if (titleInput === null) return;
-    const workspaceTitle = titleInput.trim() || defaultTitle;
-    state.meta.workspaceTitle = workspaceTitle;
-    renderHeader();
+    const defaultName = programmeNameValue(state.meta.programme) === "Untitled Programme" ? "" : state.meta.programme;
+    openDialog({
+      eyebrow: "Cloud",
+      title: "Create Programme Workspace",
+      fields: [
+        { name: "programme", label: "Programme / workspace name", value: defaultName, required: true }
+      ],
+      async onSave(values) {
+        const programmeName = programmeNameValue(values.programme);
+        const workspaceTitle = workspaceTitleForProgramme(programmeName);
+        state.meta.programme = programmeName;
+        state.meta.workspaceTitle = workspaceTitle;
+        renderHeader();
 
-    if (!confirm(`Create a private online workspace named "${workspaceTitle}" from the current mapping data?`)) return;
+        try {
+          setCloudStatus("Creating private link...");
+          const { data, error } = await cloud.client.rpc("create_curriculum_workspace", {
+            title: workspaceTitle,
+            initial_data: state
+          });
+          if (error) throw error;
 
-    try {
-      setCloudStatus("Creating private link...");
-      const { data, error } = await cloud.client.rpc("create_curriculum_workspace", {
-        title: workspaceTitle,
-        initial_data: state
-      });
-      if (error) throw error;
-
-      cloud.enabled = true;
-      cloud.loaded = true;
-      cloud.canEdit = true;
-      cloud.canManageTemplate = true;
-      cloud.workspace = data.slug;
-      cloud.adminToken = data.adminToken || data.editToken;
-      cloud.token = cloud.adminToken;
-      cloud.editToken = data.editToken;
-      cloud.viewToken = data.viewToken;
-      cloud.lastUpdatedAt = data.updatedAt || "";
-      const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.adminToken);
-      window.history.replaceState(null, "", nextUrl);
-      updateShareButtons();
-      setCloudStatus("Cloud admin setup link", "online");
-      startCloudPolling();
-      toast("Private admin link created");
-    } catch (error) {
-      console.error("Unable to create cloud workspace", error);
-      setCloudStatus("Cloud create failed", "error");
-      alert(`Unable to create private link: ${error.message}`);
-    }
+          cloud.enabled = true;
+          cloud.loaded = true;
+          cloud.canEdit = true;
+          cloud.canManageTemplate = true;
+          cloud.workspace = data.slug;
+          cloud.adminToken = data.adminToken || data.editToken;
+          cloud.token = cloud.adminToken;
+          cloud.editToken = data.editToken;
+          cloud.viewToken = data.viewToken;
+          cloud.lastUpdatedAt = data.updatedAt || "";
+          const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.adminToken);
+          window.history.replaceState(null, "", nextUrl);
+          updateShareButtons();
+          setCloudStatus("Cloud admin setup link", "online");
+          startCloudPolling();
+          toast("Private admin link created");
+        } catch (error) {
+          console.error("Unable to create cloud workspace", error);
+          setCloudStatus("Cloud create failed", "error");
+          alert(`Unable to create private link: ${error.message}`);
+        }
+      }
+    });
   }
 
   function queueCloudSave() {
@@ -612,7 +650,13 @@
       await navigator.clipboard.writeText(text);
       toast(`${label} copied`);
     } catch {
-      window.prompt(`Copy ${label}:`, text);
+      openDialog({
+        eyebrow: "Copy",
+        title: `Copy ${label}`,
+        fields: [
+          { name: "link", label: `Copy this ${label}`, value: text, type: "textarea" }
+        ]
+      });
     }
   }
 
@@ -1612,16 +1656,72 @@
     }
   }
 
-  function newTemplate() {
+  async function newTemplate() {
     if (!canManageTemplate()) return;
-    if (!confirm("Start a new blank template? Export the current JSON first if you need a copy.")) return;
-    state = {
-      meta: { programme: "Untitled Programme", workspaceTitle: "Untitled Programme Curriculum Mapping Workspace", department: "", version: "Working version", workshopDate: "", participants: "" },
-      plos: [], papers: [], alignments: {}, notes: {}, pathways: [], connections: [], assessments: [], actions: [],
-      wording: clone(DEFAULT_WORDING)
-    };
-    selectedPaperId = null;
-    renderAll(); scheduleSave(); toast("Blank template created");
+    openDialog({
+      eyebrow: "New",
+      title: cloud.enabled ? "Create New Cloud Workspace" : "Create New Local Workspace",
+      fields: [
+        { name: "programme", label: "Programme / workspace name", value: "", required: true }
+      ],
+      async onSave(values) {
+        const programmeName = programmeNameValue(values.programme);
+        const nextState = blankWorkspaceState(programmeName, getWording());
+        const workspaceTitle = nextState.meta.workspaceTitle;
+
+        if (cloud.enabled) {
+          if (!cloud.client && !(await configureCloud())) {
+            alert("Cloud collaboration is not configured yet. Add Supabase values to config.js first.");
+            return;
+          }
+          try {
+            setCloudStatus("Creating new workspace...");
+            const { data, error } = await cloud.client.rpc("create_curriculum_workspace", {
+              title: workspaceTitle,
+              initial_data: nextState
+            });
+            if (error) throw error;
+
+            state = normaliseState(data.data || nextState);
+            cloud.enabled = true;
+            cloud.loaded = true;
+            cloud.canEdit = true;
+            cloud.canManageTemplate = true;
+            cloud.workspace = data.slug;
+            cloud.adminToken = data.adminToken || data.editToken;
+            cloud.token = cloud.adminToken;
+            cloud.editToken = data.editToken;
+            cloud.viewToken = data.viewToken;
+            cloud.lastUpdatedAt = data.updatedAt || "";
+            const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.adminToken);
+            window.history.replaceState(null, "", nextUrl);
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (error) {
+              console.warn("Unable to cache new workspace locally", error);
+            }
+            selectedPaperId = null;
+            renderAll();
+            updateShareButtons();
+            setCloudStatus("Cloud admin setup link", "online");
+            byId("save-status").textContent = "Saved to cloud";
+            startCloudPolling();
+            toast("New workspace created");
+          } catch (error) {
+            console.error("Unable to create new workspace", error);
+            setCloudStatus("Cloud create failed", "error");
+            alert(`Unable to create new workspace: ${error.message}`);
+          }
+          return;
+        }
+
+        state = nextState;
+        selectedPaperId = null;
+        renderAll();
+        scheduleSave();
+        toast("Blank workspace created");
+      }
+    });
   }
 
   function setCanvasMode(mode) {

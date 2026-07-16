@@ -52,6 +52,8 @@ It is not a full login/role system. Do not use it for highly sensitive data unti
 8. Use `Print / PDF` at the end of the workshop.
 9. Use `Export JSON` as a backup.
 
+To start another programme, use `New workspace` from an admin link. The app will ask for the programme name, create a separate cloud workspace, and switch to that new workspace's admin link.
+
 ## Collaboration Model
 
 The first cloud version uses private links, autosave, and polling every few seconds for near-real-time updates.
