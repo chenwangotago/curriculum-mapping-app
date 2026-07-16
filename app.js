@@ -9,10 +9,12 @@
     client: null,
     workspace: URL_PARAMS.get("workspace") || "",
     token: URL_PARAMS.get("token") || "",
+    adminToken: "",
     editToken: "",
     viewToken: "",
     enabled: false,
     canEdit: true,
+    canManageTemplate: true,
     loaded: false,
     pendingLocalChanges: false,
     applyingRemote: false,
@@ -368,6 +370,18 @@
     return allowed;
   }
 
+  function canManageTemplate(showMessage = true) {
+    const allowed = !cloud.enabled || cloud.canManageTemplate;
+    if (!allowed && showMessage) toast("Only the workspace admin can edit template wording");
+    return allowed;
+  }
+
+  function cloudAccessLabel() {
+    if (!cloud.enabled) return "Cloud ready";
+    if (!cloud.canEdit) return "Cloud view-only link";
+    return cloud.canManageTemplate ? "Cloud admin setup link" : "Cloud edit link";
+  }
+
   function setCloudStatus(message, kind = "") {
     const element = byId("cloud-status");
     element.textContent = message;
@@ -454,13 +468,17 @@
       cloud.enabled = true;
       cloud.loaded = true;
       cloud.canEdit = Boolean(data.canEdit);
-      cloud.editToken = cloud.canEdit ? cloud.token : "";
+      cloud.canManageTemplate = Object.prototype.hasOwnProperty.call(data, "canManageTemplate")
+        ? Boolean(data.canManageTemplate)
+        : cloud.canEdit;
+      cloud.adminToken = data.adminToken || (cloud.canManageTemplate ? cloud.token : "");
+      cloud.editToken = data.editToken || (cloud.canEdit && !cloud.canManageTemplate ? cloud.token : "");
       cloud.viewToken = data.viewToken || (!cloud.canEdit ? cloud.token : "");
       cloud.lastUpdatedAt = data.updatedAt || "";
       selectedPaperId = state.papers[0]?.id || null;
       renderAll();
       updateShareButtons();
-      setCloudStatus(cloud.canEdit ? "Cloud edit link" : "Cloud view-only link", cloud.canEdit ? "online" : "readonly");
+      setCloudStatus(cloudAccessLabel(), cloud.canEdit ? "online" : "readonly");
       startCloudPolling();
     } catch (error) {
       console.error("Unable to load cloud workspace", error);
@@ -507,17 +525,19 @@
       cloud.enabled = true;
       cloud.loaded = true;
       cloud.canEdit = true;
+      cloud.canManageTemplate = true;
       cloud.workspace = data.slug;
-      cloud.token = data.editToken;
+      cloud.adminToken = data.adminToken || data.editToken;
+      cloud.token = cloud.adminToken;
       cloud.editToken = data.editToken;
       cloud.viewToken = data.viewToken;
       cloud.lastUpdatedAt = data.updatedAt || "";
-      const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.editToken);
+      const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.adminToken);
       window.history.replaceState(null, "", nextUrl);
       updateShareButtons();
-      setCloudStatus("Cloud edit link", "online");
+      setCloudStatus("Cloud admin setup link", "online");
       startCloudPolling();
-      toast("Private edit link created");
+      toast("Private admin link created");
     } catch (error) {
       console.error("Unable to create cloud workspace", error);
       setCloudStatus("Cloud create failed", "error");
@@ -537,7 +557,7 @@
       setCloudStatus("Syncing...");
       const { data, error } = await cloud.client.rpc("save_curriculum_workspace", {
         workspace_slug: cloud.workspace,
-        access_token: cloud.editToken || cloud.token,
+        access_token: cloud.token,
         next_data: state
       });
       if (error) throw error;
@@ -572,7 +592,7 @@
         selectedPaperId = state.papers.some((paperItem) => paperItem.id === selectedPaperId) ? selectedPaperId : state.papers[0]?.id || null;
         renderAll();
         updateShareButtons();
-        setCloudStatus(cloud.canEdit ? "Cloud synced" : "Cloud view-only link", cloud.canEdit ? "online" : "readonly");
+        setCloudStatus(cloud.canEdit ? "Cloud synced" : cloudAccessLabel(), cloud.canEdit ? "online" : "readonly");
       }
     } catch (error) {
       console.warn("Cloud polling failed", error);
@@ -597,14 +617,22 @@
   }
 
   function updateShareButtons() {
+    const adminButton = byId("copy-admin-link-button");
     const editButton = byId("copy-edit-link-button");
     const viewButton = byId("copy-view-link-button");
     byId("create-cloud-workspace-button").hidden = cloud.enabled;
-    editButton.hidden = !(cloud.enabled && cloud.canEdit && (cloud.editToken || cloud.token));
-    viewButton.hidden = !(cloud.enabled && (cloud.viewToken || !cloud.canEdit));
+    adminButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.adminToken || cloud.token));
+    editButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.editToken || cloud.token));
+    viewButton.hidden = !(cloud.enabled && cloud.canManageTemplate && cloud.viewToken);
     document.body.classList.toggle("read-only", cloud.enabled && !cloud.canEdit);
-    $$("[data-requires-edit], #add-plo-button, #add-paper-button, #paper-view-add-button, #add-assessment-button, #add-action-button, #wording-settings-button, #new-template-button, #import-button, #save-snapshot-button")
-      .forEach((button) => { button.disabled = cloud.enabled && !cloud.canEdit; });
+    const lockForReadOnly = cloud.enabled && !cloud.canEdit;
+    $$("[data-requires-edit], #add-plo-button, #add-paper-button, #paper-view-add-button, #add-assessment-button, #add-action-button, #save-snapshot-button")
+      .forEach((button) => { button.disabled = lockForReadOnly; });
+    $$("[data-requires-admin], #wording-settings-button, #new-template-button, #import-button")
+      .forEach((button) => { button.disabled = lockForReadOnly || (cloud.enabled && !cloud.canManageTemplate); });
+    byId("wording-settings-button").hidden = cloud.enabled && !cloud.canManageTemplate;
+    byId("new-template-button").hidden = cloud.enabled && !cloud.canManageTemplate;
+    byId("import-button").hidden = cloud.enabled && !cloud.canManageTemplate;
   }
 
   function escapeHtml(value = "") {
@@ -1329,22 +1357,25 @@
 
   function editProgrammeSettings() {
     if (!canEditWorkspace()) return;
+    const fields = [
+      { name: "programme", label: "Programme / major name", value: state.meta.programme, required: true },
+      { name: "department", label: "Department / school", value: state.meta.department },
+      { name: "version", label: "Version label", value: state.meta.version },
+      { name: "workshopDate", label: "Workshop date", value: state.meta.workshopDate, type: "date" },
+      { name: "participants", label: "Participants", value: state.meta.participants, type: "textarea" }
+    ];
+    if (canManageTemplate(false)) {
+      fields.splice(1, 0, { name: "workspaceTitle", label: "Workspace/link title", value: state.meta.workspaceTitle || getWorkspaceTitle() });
+    }
     openDialog({
       title: "Programme Settings",
-      fields: [
-        { name: "programme", label: "Programme / major name", value: state.meta.programme, required: true },
-        { name: "workspaceTitle", label: "Workspace/link title", value: state.meta.workspaceTitle || getWorkspaceTitle() },
-        { name: "department", label: "Department / school", value: state.meta.department },
-        { name: "version", label: "Version label", value: state.meta.version },
-        { name: "workshopDate", label: "Workshop date", value: state.meta.workshopDate, type: "date" },
-        { name: "participants", label: "Participants", value: state.meta.participants, type: "textarea" }
-      ],
+      fields,
       onSave(values) { Object.assign(state.meta, values); renderHeader(); scheduleSave(); }
     });
   }
 
   function editTemplateWording() {
-    if (!canEditWorkspace()) return;
+    if (!canManageTemplate()) return;
     const w = getWording();
     openDialog({
       title: "Template Wording",
@@ -1464,7 +1495,7 @@
           if (cloud.enabled && cloud.canEdit && cloud.client) {
             const { error } = await cloud.client.rpc("create_curriculum_workspace_version", {
               workspace_slug: cloud.workspace,
-              access_token: cloud.editToken || cloud.token,
+              access_token: cloud.token,
               version_label: values.label,
               version_notes: values.notes,
               version_data: state
@@ -1570,7 +1601,7 @@
   }
 
   async function importJson(file) {
-    if (!canEditWorkspace()) return;
+    if (!canManageTemplate()) return;
     try {
       const text = await file.text();
       state = normaliseState(JSON.parse(text));
@@ -1582,7 +1613,7 @@
   }
 
   function newTemplate() {
-    if (!canEditWorkspace()) return;
+    if (!canManageTemplate()) return;
     if (!confirm("Start a new blank template? Export the current JSON first if you need a copy.")) return;
     state = {
       meta: { programme: "Untitled Programme", workspaceTitle: "Untitled Programme Curriculum Mapping Workspace", department: "", version: "Working version", workshopDate: "", participants: "" },
@@ -1895,6 +1926,9 @@
   byId("programme-settings-button").addEventListener("click", editProgrammeSettings);
   byId("wording-settings-button").addEventListener("click", editTemplateWording);
   byId("create-cloud-workspace-button").addEventListener("click", createCloudWorkspace);
+  byId("copy-admin-link-button").addEventListener("click", () => {
+    copyText(buildWorkspaceUrl(cloud.workspace, cloud.adminToken || cloud.token), "admin link");
+  });
   byId("copy-edit-link-button").addEventListener("click", () => {
     copyText(buildWorkspaceUrl(cloud.workspace, cloud.editToken || cloud.token), "edit link");
   });

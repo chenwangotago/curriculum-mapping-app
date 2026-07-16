@@ -8,6 +8,7 @@ create table if not exists public.curriculum_workspaces (
   id uuid primary key default gen_random_uuid(),
   slug text unique not null,
   title text not null default 'Untitled Programme',
+  admin_token text not null default encode(extensions.gen_random_bytes(24), 'hex'),
   edit_token text not null default encode(extensions.gen_random_bytes(24), 'hex'),
   view_token text not null default encode(extensions.gen_random_bytes(24), 'hex'),
   data jsonb not null,
@@ -15,6 +16,16 @@ create table if not exists public.curriculum_workspaces (
   updated_at timestamptz not null default now(),
   archived_at timestamptz
 );
+
+-- Existing workspaces created before admin links keep their current edit URL as the
+-- admin setup link. A fresh participant edit token is generated for future sharing.
+alter table public.curriculum_workspaces add column if not exists admin_token text;
+alter table public.curriculum_workspaces alter column admin_token set default encode(extensions.gen_random_bytes(24), 'hex');
+update public.curriculum_workspaces
+set admin_token = edit_token,
+    edit_token = encode(extensions.gen_random_bytes(24), 'hex')
+where admin_token is null;
+alter table public.curriculum_workspaces alter column admin_token set not null;
 
 create table if not exists public.curriculum_workspace_versions (
   id uuid primary key default gen_random_uuid(),
@@ -84,8 +95,11 @@ begin
   return jsonb_build_object(
     'slug', row.slug,
     'title', row.title,
+    'adminToken', row.admin_token,
     'editToken', row.edit_token,
     'viewToken', row.view_token,
+    'canEdit', true,
+    'canManageTemplate', true,
     'data', row.data,
     'updatedAt', row.updated_at
   );
@@ -101,23 +115,28 @@ as $$
 declare
   row curriculum_workspaces;
   can_edit boolean;
+  can_manage_template boolean;
 begin
   select * into row
   from public.curriculum_workspaces
   where slug = workspace_slug
     and archived_at is null
-    and (edit_token = access_token or view_token = access_token);
+    and (admin_token = access_token or edit_token = access_token or view_token = access_token);
 
   if not found then
     raise exception 'Workspace not found or token invalid';
   end if;
 
-  can_edit := row.edit_token = access_token;
+  can_manage_template := row.admin_token = access_token;
+  can_edit := can_manage_template or row.edit_token = access_token;
 
   return jsonb_build_object(
     'slug', row.slug,
     'title', row.title,
     'canEdit', can_edit,
+    'canManageTemplate', can_manage_template,
+    'adminToken', case when can_manage_template then row.admin_token else null end,
+    'editToken', case when can_manage_template then row.edit_token else null end,
     'viewToken', case when can_edit then row.view_token else null end,
     'data', row.data,
     'updatedAt', row.updated_at
@@ -133,18 +152,36 @@ set search_path = public
 as $$
 declare
   row curriculum_workspaces;
+  can_manage_template boolean;
+  data_to_save jsonb;
 begin
-  update public.curriculum_workspaces
-  set data = next_data,
-      title = coalesce(nullif(next_data #>> '{meta,workspaceTitle}', ''), nullif(next_data #>> '{meta,programme}', ''), title)
+  select * into row
+  from public.curriculum_workspaces
   where slug = workspace_slug
-    and edit_token = access_token
     and archived_at is null
-  returning * into row;
+    and (admin_token = access_token or edit_token = access_token);
 
   if not found then
     raise exception 'Workspace not found, read-only, or token invalid';
   end if;
+
+  can_manage_template := row.admin_token = access_token;
+  data_to_save := next_data;
+
+  if not can_manage_template then
+    data_to_save := jsonb_set(data_to_save, '{wording}', coalesce(row.data -> 'wording', 'null'::jsonb), true);
+    data_to_save := jsonb_set(data_to_save, '{meta,workspaceTitle}', coalesce(row.data #> '{meta,workspaceTitle}', 'null'::jsonb), true);
+  end if;
+
+  update public.curriculum_workspaces
+  set data = data_to_save,
+      title = case
+        when can_manage_template
+          then coalesce(nullif(data_to_save #>> '{meta,workspaceTitle}', ''), nullif(data_to_save #>> '{meta,programme}', ''), title)
+        else title
+      end
+  where id = row.id
+  returning * into row;
 
   return jsonb_build_object(
     'slug', row.slug,
@@ -174,7 +211,7 @@ begin
   select * into workspace
   from public.curriculum_workspaces
   where slug = workspace_slug
-    and edit_token = access_token
+    and (admin_token = access_token or edit_token = access_token)
     and archived_at is null;
 
   if not found then
@@ -207,7 +244,7 @@ begin
   from public.curriculum_workspaces
   where slug = workspace_slug
     and archived_at is null
-    and (edit_token = access_token or view_token = access_token);
+    and (admin_token = access_token or edit_token = access_token or view_token = access_token);
 
   if not found then
     raise exception 'Workspace not found or token invalid';

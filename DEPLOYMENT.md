@@ -28,11 +28,13 @@ GitHub alone is not enough for collaboration because GitHub Pages only serves st
 The app creates links like:
 
 ```text
+https://your-site/curriculum-mapping-app/?workspace=history-major-2026-ab12cd34&token=ADMIN_TOKEN
 https://your-site/curriculum-mapping-app/?workspace=history-major-2026-ab12cd34&token=EDIT_TOKEN
 https://your-site/curriculum-mapping-app/?workspace=history-major-2026-ab12cd34&token=VIEW_TOKEN
 ```
 
-- Edit link: anyone with the link can edit the workspace.
+- Admin link: workspace owner/setup link. Can edit template wording, block titles, level bands, link title, import JSON, and create a new template.
+- Edit link: programme team link. Can edit mapping content, but not template wording or block titles.
 - View link: anyone with the link can view, export PDF/JSON, but not edit.
 
 This is a private-link model, similar to "anyone with the link can edit" in a document editor.
@@ -42,11 +44,13 @@ It is not a full login/role system. Do not use it for highly sensitive data unti
 
 1. Open the deployed app.
 2. Click `Create private link`.
-3. Copy the edit link and share with the programme team.
-4. Copy the view link if someone only needs to review/export.
-5. Use `Save snapshot` at milestones.
-6. Use `Print / PDF` at the end of the workshop.
-7. Use `Export JSON` as a backup.
+3. Keep the admin link for the facilitator/template owner.
+4. Use `Template wording` to customise terminology, block titles, and level bands for the programme.
+5. Copy the edit link and share with the programme team.
+6. Copy the view link if someone only needs to review/export.
+7. Use `Save snapshot` at milestones.
+8. Use `Print / PDF` at the end of the workshop.
+9. Use `Export JSON` as a backup.
 
 ## Collaboration Model
 
