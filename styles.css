@@ -397,9 +397,7 @@ tr:last-child td { border-bottom: 0; }
   position: relative;
   height: 680px;
   overflow: hidden;
-  background:
-    linear-gradient(90deg, transparent 0, transparent calc(33.333% - 1px), #dfe7f0 calc(33.333% - 1px), #dfe7f0 33.333%, transparent 33.333%, transparent calc(66.666% - 1px), #dfe7f0 calc(66.666% - 1px), #dfe7f0 66.666%, transparent 66.666%),
-    repeating-linear-gradient(0deg, #fff, #fff 31px, #f5f8fb 32px);
+  background: repeating-linear-gradient(0deg, #fff, #fff 31px, #f5f8fb 32px);
 }
 
 .level-headings {
@@ -409,12 +407,13 @@ tr:last-child td { border-bottom: 0; }
   height: 54px;
   border-bottom: 1px solid var(--line);
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(var(--level-band-count, 3), 1fr);
   background: rgba(238,245,252,.95);
   pointer-events: none;
 }
 
 .level-headings div { padding: 10px 15px; }
+.level-headings div + div { border-left: 1px solid #dfe7f0; }
 .level-headings b { display: block; color: var(--navy); font-size: 13px; }
 .level-headings span { color: var(--muted); font-size: 10.5px; }
 

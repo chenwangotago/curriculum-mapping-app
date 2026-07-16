@@ -28,6 +28,80 @@
     "Service / shared provision",
     "Advanced synthesis / capstone"
   ];
+  const DEFAULT_WORDING = {
+    tabs: {
+      programme: "1. Program",
+      assessment: "2. Assessments",
+      paper: "3. Papers",
+      actions: "4. Actions"
+    },
+    programme: {
+      title: "Programme Whole Picture",
+      help: "Clarify programme outcomes, map direct paper alignment, then explore pathways and progression.",
+      ploTitle: "Programme Learning Outcomes",
+      ploHelp: "Click a PLO to edit it. Dragging is not needed here; the order sets the table order.",
+      alignmentTitle: "Alignment Mapping Exercise",
+      alignmentHelp: "Click each PLO cell to cycle through blank → Introduced → Developed → Mastered.",
+      pathwaysTitle: "Student Pathways & Programme Network",
+      pathwaysHelp: "Drag papers freely across levels to make possible journeys visible. Use lines to show required, recommended, or related movement between papers.",
+      addPlo: "Add PLO",
+      addPaper: "Add paper",
+      levelBands: [
+        { label: "100-level", description: "Entry and introduction", min: 0, max: 199, defaultLevel: 100 },
+        { label: "200-level", description: "Development and choice", min: 200, max: 299, defaultLevel: 200 },
+        { label: "300-level", description: "Advanced work and synthesis", min: 300, max: 999, defaultLevel: 300 }
+      ]
+    },
+    alignment: {
+      introduced: "Introduced",
+      developed: "Developed",
+      mastered: "Mastered"
+    },
+    network: {
+      move: "Move papers",
+      required: "Required before",
+      recommended: "Recommended progression",
+      related: "Related",
+      clearLines: "Clear lines",
+      moveStatus: "Drag papers freely. Patterns and journeys emerge from where the team places papers.",
+      requiredStatus: "Select the earlier paper, then the paper that must follow.",
+      recommendedStatus: "Select the earlier paper, then the recommended next paper.",
+      relatedStatus: "Select two related or mutually supporting papers.",
+      selectedSuffix: "selected. Choose the second paper.",
+      requiredKey: "Required before / must precede",
+      recommendedKey: "Recommended progression",
+      relatedKey: "Related or mutually supporting",
+      hint: "Right-click a paper to open its details or a line to remove it."
+    },
+    assessment: {
+      title: "Assessment Mapping",
+      help: "Review programme-level assessment evidence, assessment roles, student progress, workload, and AI-readiness across the programme.",
+      evidenceTitle: "PLO × Assessment Evidence",
+      evidenceHelp: "Click a cell to cycle through blank → Partial evidence → Direct evidence.",
+      itemsTitle: "Assessment Items",
+      itemsHelp: "Assessment details can be entered here or from the relevant paper page. The assessed PLOs are carried through from the evidence table.",
+      summaryTitle: "PLO Evidence Summary By Level",
+      summaryHelp: "Use this to see where each programme learning outcome is directly or partially assessed across the programme levels.",
+      programmeEvidenceTitle: "Programme Evidence of Learning",
+      programmeEvidenceHelp: "Shows what evidence each paper contributes to a programme-level picture of student progress and capability development.",
+      workloadTitle: "Student Workload",
+      workloadHelp: "Assessment items are placed by due week. Higher-weight items are shown more strongly.",
+      addAssessment: "Add assessment item"
+    },
+    paper: {
+      title: "Paper Details",
+      help: "Review each paper's programme contribution, course learning outcomes, learning activities, assessment, and internal alignment.",
+      addPaper: "Add paper",
+      findPaper: "Find a paper"
+    },
+    actions: {
+      title: "Decisions & Actions",
+      help: "Bring diagnosis notes from the programme, paper, and assessment pages into decisions and accountable actions.",
+      diagnosisTitle: "Diagnosis Notes From Mapping",
+      diagnosisHelp: "These are carried through from programme notes, paper diagnosis notes, and assessment diagnosis notes.",
+      addAction: "Add action"
+    }
+  };
 
   const sampleData = {
     meta: {
@@ -90,7 +164,8 @@
       { id: "act1", title: "Clarify HUMS101 communication evidence", owner: "Paper coordinator", due: "2026-08-01", status: "To do", notes: "Review CLO and essay rubric." },
       { id: "act2", title: "Review research preparation before HUMS215", owner: "Programme team", due: "2026-09-01", status: "In progress", notes: "Check 100-level activities." },
       { id: "act3", title: "Confirm capstone PLO evidence", decision: "Use the capstone project and reflection as direct PLO evidence.", owner: "HUMS399 team", due: "2026-07-15", status: "Completed", notes: "Mapped to project and reflection." }
-    ]
+    ],
+    wording: clone(DEFAULT_WORDING)
   };
 
   function paper(id, code, title, level, x, y, roles) {
@@ -125,6 +200,95 @@
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  function mergeObject(base, value) {
+    return { ...base, ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}) };
+  }
+
+  function normaliseLevelBands(value) {
+    const source = Array.isArray(value) && value.length ? value : DEFAULT_WORDING.programme.levelBands;
+    return source
+      .map((band, index) => {
+        const fallback = DEFAULT_WORDING.programme.levelBands[index] || DEFAULT_WORDING.programme.levelBands.at(-1);
+        const min = Number.isFinite(Number(band.min)) ? Number(band.min) : Number(fallback.min);
+        const max = Number.isFinite(Number(band.max)) ? Number(band.max) : Number(fallback.max);
+        const defaultLevel = Number.isFinite(Number(band.defaultLevel)) ? Number(band.defaultLevel) : min;
+        return {
+          label: String(band.label || fallback.label || `${defaultLevel}-level`),
+          description: String(band.description || fallback.description || ""),
+          min,
+          max: Math.max(min, max),
+          defaultLevel
+        };
+      })
+      .filter((band) => band.label.trim())
+      .slice(0, 6);
+  }
+
+  function normaliseWording(value = {}) {
+    value = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const base = clone(DEFAULT_WORDING);
+    const wording = mergeObject(base, value);
+    wording.tabs = mergeObject(base.tabs, value.tabs);
+    wording.programme = mergeObject(base.programme, value.programme);
+    wording.programme.levelBands = normaliseLevelBands(value.programme?.levelBands);
+    wording.alignment = mergeObject(base.alignment, value.alignment);
+    wording.network = mergeObject(base.network, value.network);
+    wording.assessment = mergeObject(base.assessment, value.assessment);
+    wording.paper = mergeObject(base.paper, value.paper);
+    wording.actions = mergeObject(base.actions, value.actions);
+    return wording;
+  }
+
+  function getWording() {
+    state.wording = normaliseWording(state.wording);
+    return state.wording;
+  }
+
+  function getLevelBands() {
+    return getWording().programme.levelBands;
+  }
+
+  function bandForLevel(level) {
+    const value = Number(level) || 0;
+    return getLevelBands().find((band) => value >= band.min && value <= band.max) || null;
+  }
+
+  function bandLabelForLevel(level) {
+    return bandForLevel(level)?.label || `${level}-level`;
+  }
+
+  function paperLevelOptions() {
+    return [...new Set([
+      ...getLevelBands().map((band) => band.defaultLevel),
+      ...state.papers.map((paperItem) => Number(paperItem.level) || 0)
+    ].filter(Boolean))].sort((a, b) => a - b);
+  }
+
+  function levelBandsToText() {
+    return getLevelBands()
+      .map((band) => `${band.label} | ${band.description} | ${band.min} | ${band.max} | ${band.defaultLevel}`)
+      .join("\n");
+  }
+
+  function parseLevelBands(text) {
+    const rows = String(text || "")
+      .split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line, index) => {
+        const [label, description = "", min = "", max = "", defaultLevel = ""] = line.split("|").map((part) => part.trim());
+        const fallback = DEFAULT_WORDING.programme.levelBands[index] || DEFAULT_WORDING.programme.levelBands.at(-1);
+        return {
+          label: label || fallback.label,
+          description,
+          min: Number(min || fallback.min),
+          max: Number(max || fallback.max),
+          defaultLevel: Number(defaultLevel || min || fallback.defaultLevel)
+        };
+      });
+    return normaliseLevelBands(rows);
   }
 
   function loadState() {
@@ -173,7 +337,8 @@
       pathways: Array.isArray(input.pathways) ? input.pathways : base.pathways,
       connections: Array.isArray(input.connections) ? input.connections : [],
       assessments,
-      actions
+      actions,
+      wording: normaliseWording(input.wording)
     };
   }
 
@@ -438,7 +603,7 @@
     editButton.hidden = !(cloud.enabled && cloud.canEdit && (cloud.editToken || cloud.token));
     viewButton.hidden = !(cloud.enabled && (cloud.viewToken || !cloud.canEdit));
     document.body.classList.toggle("read-only", cloud.enabled && !cloud.canEdit);
-    $$("[data-requires-edit], #add-plo-button, #add-paper-button, #paper-view-add-button, #add-assessment-button, #add-action-button, #new-template-button, #import-button, #save-snapshot-button")
+    $$("[data-requires-edit], #add-plo-button, #add-paper-button, #paper-view-add-button, #add-assessment-button, #add-action-button, #wording-settings-button, #new-template-button, #import-button, #save-snapshot-button")
       .forEach((button) => { button.disabled = cloud.enabled && !cloud.canEdit; });
   }
 
@@ -451,7 +616,13 @@
       .replaceAll("'", "&#039;");
   }
 
+  function setText(id, value) {
+    const element = byId(id);
+    if (element) element.textContent = value;
+  }
+
   function renderAll() {
+    renderWording();
     renderHeader();
     renderPlos();
     renderMappingTable();
@@ -460,6 +631,70 @@
     renderPaperEditor();
     renderAssessments();
     renderActions();
+  }
+
+  function renderWording() {
+    const w = getWording();
+    $$("[data-view='programme']").forEach((element) => { element.textContent = w.tabs.programme; });
+    $$("[data-view='assessment']").forEach((element) => { element.textContent = w.tabs.assessment; });
+    $$("[data-view='paper']").forEach((element) => { element.textContent = w.tabs.paper; });
+    $$("[data-view='actions']").forEach((element) => { element.textContent = w.tabs.actions; });
+
+    setText("programme-view-title", w.programme.title);
+    setText("programme-view-help", w.programme.help);
+    setText("plo-section-title", w.programme.ploTitle);
+    setText("plo-section-help", w.programme.ploHelp);
+    setText("alignment-section-title", w.programme.alignmentTitle);
+    setText("alignment-section-help", w.programme.alignmentHelp);
+    setText("pathways-section-title", w.programme.pathwaysTitle);
+    setText("pathways-section-help", w.programme.pathwaysHelp);
+    setText("add-plo-button", w.programme.addPlo);
+    setText("add-paper-button", w.programme.addPaper);
+    setText("paper-view-add-button", w.paper.addPaper);
+    setText("add-assessment-button", w.assessment.addAssessment);
+    setText("add-action-button", w.actions.addAction);
+
+    byId("alignment-legend").innerHTML = `
+      <span><b>I</b> ${escapeHtml(w.alignment.introduced)}</span>
+      <span><b>D</b> ${escapeHtml(w.alignment.developed)}</span>
+      <span><b>M</b> ${escapeHtml(w.alignment.mastered)}</span>`;
+
+    setText("assessment-view-title", w.assessment.title);
+    setText("assessment-view-help", w.assessment.help);
+    setText("assessment-evidence-title", w.assessment.evidenceTitle);
+    setText("assessment-evidence-help", w.assessment.evidenceHelp);
+    setText("assessment-items-title", w.assessment.itemsTitle);
+    setText("assessment-items-help", w.assessment.itemsHelp);
+    setText("assessment-summary-title", w.assessment.summaryTitle);
+    setText("assessment-summary-help", w.assessment.summaryHelp);
+    setText("programme-evidence-title", w.assessment.programmeEvidenceTitle);
+    setText("programme-evidence-help", w.assessment.programmeEvidenceHelp);
+    setText("student-workload-title", w.assessment.workloadTitle);
+    setText("student-workload-help", w.assessment.workloadHelp);
+
+    setText("paper-view-title", w.paper.title);
+    setText("paper-view-help", w.paper.help);
+    setText("paper-search-label", w.paper.findPaper);
+
+    setText("actions-view-title", w.actions.title);
+    setText("actions-view-help", w.actions.help);
+    setText("diagnosis-notes-title", w.actions.diagnosisTitle);
+    setText("diagnosis-notes-help", w.actions.diagnosisHelp);
+
+    setText("clear-connections-button", w.network.clearLines);
+    const modeLabels = {
+      move: w.network.move,
+      required: w.network.required,
+      recommended: w.network.recommended,
+      related: w.network.related
+    };
+    $$(".mode-button").forEach((button) => { button.textContent = modeLabels[button.dataset.mode] || button.textContent; });
+    setText("canvas-status", w.network[`${canvasMode}Status`] || w.network.moveStatus);
+    byId("canvas-key").innerHTML = `
+      <span><i class="line required"></i>${escapeHtml(w.network.requiredKey)}</span>
+      <span><i class="line recommended"></i>${escapeHtml(w.network.recommendedKey)}</span>
+      <span><i class="line related"></i>${escapeHtml(w.network.relatedKey)}</span>
+      <span class="hint">${escapeHtml(w.network.hint)}</span>`;
   }
 
   function renderHeader() {
@@ -547,11 +782,18 @@
   }
 
   function renderCanvas() {
+    const bands = getLevelBands();
+    const headings = byId("level-headings");
+    headings.style.setProperty("--level-band-count", String(Math.max(1, bands.length)));
+    headings.innerHTML = bands.map((band) => `
+      <div><b>${escapeHtml(band.label)}</b><span>${escapeHtml(band.description)}</span></div>
+    `).join("");
+
     const cards = byId("paper-cards");
     cards.innerHTML = state.papers.map((paperItem) => `
       <article class="paper-card" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
         style="left:${paperItem.x}px;top:${paperItem.y}px">
-        <small>${paperItem.level}</small>
+        <small>${escapeHtml(bandLabelForLevel(paperItem.level))}</small>
         <b>${escapeHtml(paperItem.code)}</b>
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
@@ -663,7 +905,7 @@
         <label class="field"><span>Paper code</span><input data-paper-field="code" value="${escapeHtml(item.code)}"></label>
         <label class="field"><span>Paper title</span><input data-paper-field="title" value="${escapeHtml(item.title)}"></label>
         <label class="field"><span>Level</span><select data-paper-field="level">
-          ${[100,200,300,400].map((level) => `<option ${item.level === level ? "selected" : ""}>${level}</option>`).join("")}
+          ${paperLevelOptions().map((level) => `<option ${item.level === level ? "selected" : ""}>${level}</option>`).join("")}
         </select></label>
         <label class="field"><span>Review status</span><select data-paper-field="status">
           ${["Draft","In discussion","Ready"].map((status) => `<option ${item.status === status ? "selected" : ""}>${status}</option>`).join("")}
@@ -796,7 +1038,7 @@
               <b>${escapeHtml(paperItem.code)}</b>
               <span>${escapeHtml(paperItem.title)}</span>
             </div>
-            <small>${paperItem.level}-level · ${directCount} direct evidence item${directCount === 1 ? "" : "s"}</small>
+            <small>${escapeHtml(bandLabelForLevel(paperItem.level))} · ${directCount} direct evidence item${directCount === 1 ? "" : "s"}</small>
           </div>
           ${evidenceHtml || `<p class="muted-text">No assessment evidence mapped yet.</p>`}
         </article>`;
@@ -804,11 +1046,10 @@
   }
 
   function renderPloEvidenceSummary() {
-    const levels = [
-      { label: "100-level", test: (level) => level < 200 },
-      { label: "200-level", test: (level) => level >= 200 && level < 300 },
-      { label: "300-level", test: (level) => level >= 300 }
-    ];
+    const levels = getLevelBands().map((band) => ({
+      label: band.label,
+      test: (level) => level >= band.min && level <= band.max
+    }));
     const rows = state.plos.map((plo) => {
       const cells = levels.map(({ test }) => {
         const items = state.assessments
@@ -996,13 +1237,15 @@
       fields: [
         { name: "code", label: "Paper code", value: "", required: true },
         { name: "title", label: "Paper title", value: "", required: true },
-        { name: "level", label: "Level", value: "100", type: "select", options: ["100","200","300","400"] }
+        { name: "level", label: "Level", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) }
       ],
       onSave(values) {
         const id = uid("paper");
         const level = Number(values.level);
-        const column = level >= 300 ? 2 : level >= 200 ? 1 : 0;
-        const item = paper(id, values.code, values.title, level, 70 + column * 470, 100 + (state.papers.length % 3) * 190, []);
+        const bands = getLevelBands();
+        const column = Math.max(0, bands.findIndex((band) => level >= band.min && level <= band.max));
+        const columnWidth = Math.max(280, Math.floor(1360 / Math.max(1, bands.length)));
+        const item = paper(id, values.code, values.title, level, 70 + column * columnWidth, 100 + (state.papers.length % 3) * 190, []);
         state.papers.push(item);
         state.alignments[id] = Object.fromEntries(state.plos.map((plo) => [plo.id, ""]));
         selectedPaperId = id;
@@ -1097,6 +1340,95 @@
         { name: "participants", label: "Participants", value: state.meta.participants, type: "textarea" }
       ],
       onSave(values) { Object.assign(state.meta, values); renderHeader(); scheduleSave(); }
+    });
+  }
+
+  function editTemplateWording() {
+    if (!canEditWorkspace()) return;
+    const w = getWording();
+    openDialog({
+      title: "Template Wording",
+      fields: [
+        { name: "programmeTab", label: "Program tab label", value: w.tabs.programme },
+        { name: "assessmentTab", label: "Assessments tab label", value: w.tabs.assessment },
+        { name: "paperTab", label: "Papers tab label", value: w.tabs.paper },
+        { name: "actionsTab", label: "Actions tab label", value: w.tabs.actions },
+        { name: "programmeTitle", label: "Program page title", value: w.programme.title },
+        { name: "programmeHelp", label: "Program page description", value: w.programme.help, type: "textarea" },
+        { name: "ploTitle", label: "PLO section title", value: w.programme.ploTitle },
+        { name: "ploHelp", label: "PLO section help text", value: w.programme.ploHelp, type: "textarea" },
+        { name: "alignmentTitle", label: "Alignment section title", value: w.programme.alignmentTitle },
+        { name: "alignmentHelp", label: "Alignment section help text", value: w.programme.alignmentHelp, type: "textarea" },
+        { name: "introduced", label: "I label", value: w.alignment.introduced },
+        { name: "developed", label: "D label", value: w.alignment.developed },
+        { name: "mastered", label: "M label", value: w.alignment.mastered },
+        { name: "pathwaysTitle", label: "Pathways/network section title", value: w.programme.pathwaysTitle },
+        { name: "pathwaysHelp", label: "Pathways/network section help text", value: w.programme.pathwaysHelp, type: "textarea" },
+        { name: "levelBands", label: "Level bands (one per line: Label | Description | Min | Max | Default level)", value: levelBandsToText(), type: "textarea" },
+        { name: "moveLabel", label: "Move mode label", value: w.network.move },
+        { name: "requiredLabel", label: "Required connection label", value: w.network.required },
+        { name: "recommendedLabel", label: "Recommended connection label", value: w.network.recommended },
+        { name: "relatedLabel", label: "Related connection label", value: w.network.related },
+        { name: "assessmentTitle", label: "Assessment page title", value: w.assessment.title },
+        { name: "assessmentHelp", label: "Assessment page description", value: w.assessment.help, type: "textarea" },
+        { name: "paperTitle", label: "Paper page title", value: w.paper.title },
+        { name: "paperHelp", label: "Paper page description", value: w.paper.help, type: "textarea" },
+        { name: "actionsTitle", label: "Actions page title", value: w.actions.title },
+        { name: "actionsHelp", label: "Actions page description", value: w.actions.help, type: "textarea" }
+      ],
+      onSave(values) {
+        state.wording = normaliseWording({
+          tabs: {
+            programme: values.programmeTab,
+            assessment: values.assessmentTab,
+            paper: values.paperTab,
+            actions: values.actionsTab
+          },
+          programme: {
+            title: values.programmeTitle,
+            help: values.programmeHelp,
+            ploTitle: values.ploTitle,
+            ploHelp: values.ploHelp,
+            alignmentTitle: values.alignmentTitle,
+            alignmentHelp: values.alignmentHelp,
+            pathwaysTitle: values.pathwaysTitle,
+            pathwaysHelp: values.pathwaysHelp,
+            addPlo: getWording().programme.addPlo,
+            addPaper: getWording().programme.addPaper,
+            levelBands: parseLevelBands(values.levelBands)
+          },
+          alignment: {
+            introduced: values.introduced,
+            developed: values.developed,
+            mastered: values.mastered
+          },
+          network: {
+            ...getWording().network,
+            move: values.moveLabel,
+            required: values.requiredLabel,
+            recommended: values.recommendedLabel,
+            related: values.relatedLabel
+          },
+          assessment: {
+            ...getWording().assessment,
+            title: values.assessmentTitle,
+            help: values.assessmentHelp
+          },
+          paper: {
+            ...getWording().paper,
+            title: values.paperTitle,
+            help: values.paperHelp
+          },
+          actions: {
+            ...getWording().actions,
+            title: values.actionsTitle,
+            help: values.actionsHelp
+          }
+        });
+        renderAll();
+        scheduleSave();
+        toast("Template wording updated");
+      }
     });
   }
 
@@ -1254,7 +1586,8 @@
     if (!confirm("Start a new blank template? Export the current JSON first if you need a copy.")) return;
     state = {
       meta: { programme: "Untitled Programme", workspaceTitle: "Untitled Programme Curriculum Mapping Workspace", department: "", version: "Working version", workshopDate: "", participants: "" },
-      plos: [], papers: [], alignments: {}, notes: {}, pathways: [], connections: [], assessments: [], actions: []
+      plos: [], papers: [], alignments: {}, notes: {}, pathways: [], connections: [], assessments: [], actions: [],
+      wording: clone(DEFAULT_WORDING)
     };
     selectedPaperId = null;
     renderAll(); scheduleSave(); toast("Blank template created");
@@ -1265,11 +1598,12 @@
     connectionSource = null;
     $$(".paper-card").forEach((card) => card.classList.remove("selected"));
     $$(".mode-button").forEach((button) => button.classList.toggle("active", button.dataset.mode === mode));
+    const w = getWording().network;
     const messages = {
-      move: "Drag papers freely. Patterns and journeys emerge from where the team places papers.",
-      required: "Select the earlier paper, then the paper that must follow.",
-      recommended: "Select the earlier paper, then the recommended next paper.",
-      related: "Select two related or mutually supporting papers."
+      move: w.moveStatus,
+      required: w.requiredStatus,
+      recommended: w.recommendedStatus,
+      related: w.relatedStatus
     };
     byId("canvas-status").textContent = messages[mode];
   }
@@ -1282,7 +1616,7 @@
     if (!connectionSource) {
       connectionSource = paperId;
       card.classList.add("selected");
-      byId("canvas-status").textContent = `${card.querySelector("b").textContent} selected. Choose the second paper.`;
+      byId("canvas-status").textContent = `${card.querySelector("b").textContent} ${getWording().network.selectedSuffix}`;
       return;
     }
     if (connectionSource !== paperId) {
@@ -1559,6 +1893,7 @@
   byId("add-assessment-button").addEventListener("click", addAssessment);
   byId("add-action-button").addEventListener("click", addAction);
   byId("programme-settings-button").addEventListener("click", editProgrammeSettings);
+  byId("wording-settings-button").addEventListener("click", editTemplateWording);
   byId("create-cloud-workspace-button").addEventListener("click", createCloudWorkspace);
   byId("copy-edit-link-button").addEventListener("click", () => {
     copyText(buildWorkspaceUrl(cloud.workspace, cloud.editToken || cloud.token), "edit link");

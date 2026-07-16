@@ -20,6 +20,7 @@
     </div>
     <div class="header-actions">
       <button class="button ghost" id="programme-settings-button">Programme settings</button>
+      <button class="button ghost" id="wording-settings-button">Template wording</button>
       <button class="button ghost" id="create-cloud-workspace-button">Create private link</button>
       <button class="button ghost" id="copy-edit-link-button" hidden>Copy edit link</button>
       <button class="button ghost" id="copy-view-link-button" hidden>Copy view link</button>
@@ -44,8 +45,8 @@
     <section class="view active" id="view-programme">
       <div class="view-heading">
         <div>
-          <h2>Programme Whole Picture</h2>
-          <p>Clarify programme outcomes, map direct paper alignment, then explore pathways and progression.</p>
+          <h2 id="programme-view-title">Programme Whole Picture</h2>
+          <p id="programme-view-help">Clarify programme outcomes, map direct paper alignment, then explore pathways and progression.</p>
         </div>
         <div class="view-actions">
           <button class="button" id="add-plo-button">Add PLO</button>
@@ -57,8 +58,8 @@
         <div class="section-heading">
           <div>
             <span class="step">1</span>
-            <h3>Programme Learning Outcomes</h3>
-            <p>Click a PLO to edit it. Dragging is not needed here; the order sets the table order.</p>
+            <h3 id="plo-section-title">Programme Learning Outcomes</h3>
+            <p id="plo-section-help">Click a PLO to edit it. Dragging is not needed here; the order sets the table order.</p>
           </div>
         </div>
         <div class="plo-grid" id="plo-grid"></div>
@@ -68,10 +69,10 @@
         <div class="section-heading split">
           <div>
             <span class="step">2</span>
-            <h3>Alignment Mapping Exercise</h3>
-            <p>Click each PLO cell to cycle through blank → Introduced → Developed → Mastered.</p>
+            <h3 id="alignment-section-title">Alignment Mapping Exercise</h3>
+            <p id="alignment-section-help">Click each PLO cell to cycle through blank → Introduced → Developed → Mastered.</p>
           </div>
-          <div class="legend">
+          <div class="legend" id="alignment-legend">
             <span><b>I</b> Introduced</span>
             <span><b>D</b> Developed</span>
             <span><b>M</b> Mastered</span>
@@ -86,8 +87,8 @@
         <div class="section-heading split">
           <div>
             <span class="step">3</span>
-            <h3>Student Pathways & Programme Network</h3>
-            <p>Drag papers freely across levels to make possible journeys visible. Use lines to show required, recommended, or related movement between papers.</p>
+            <h3 id="pathways-section-title">Student Pathways & Programme Network</h3>
+            <p id="pathways-section-help">Drag papers freely across levels to make possible journeys visible. Use lines to show required, recommended, or related movement between papers.</p>
           </div>
         </div>
 
@@ -103,7 +104,7 @@
             <span id="canvas-status">Drag papers freely. Patterns and journeys emerge from where the team places papers.</span>
           </div>
           <div class="pathway-canvas" id="pathway-canvas">
-            <div class="level-headings">
+            <div class="level-headings" id="level-headings">
               <div><b>100-level</b><span>Entry and introduction</span></div>
               <div><b>200-level</b><span>Development and choice</span></div>
               <div><b>300-level</b><span>Advanced work and synthesis</span></div>
@@ -123,7 +124,7 @@
             </svg>
             <div id="paper-cards"></div>
           </div>
-          <div class="canvas-key">
+          <div class="canvas-key" id="canvas-key">
             <span><i class="line required"></i>Required before / must precede</span>
             <span><i class="line recommended"></i>Recommended progression</span>
             <span><i class="line related"></i>Related or mutually supporting</span>
@@ -136,16 +137,16 @@
     <section class="view" id="view-assessment">
       <div class="view-heading">
         <div>
-          <h2>Assessment Mapping</h2>
-          <p>Review programme-level assessment evidence, assessment roles, student progress, workload, and AI-readiness across the programme.</p>
+          <h2 id="assessment-view-title">Assessment Mapping</h2>
+          <p id="assessment-view-help">Review programme-level assessment evidence, assessment roles, student progress, workload, and AI-readiness across the programme.</p>
         </div>
         <button class="button" id="add-assessment-button">Add assessment item</button>
       </div>
 
       <section class="workspace-section">
         <div class="section-heading">
-          <h3>PLO × Assessment Evidence</h3>
-          <p>Click a cell to cycle through blank → Partial evidence → Direct evidence.</p>
+          <h3 id="assessment-evidence-title">PLO × Assessment Evidence</h3>
+          <p id="assessment-evidence-help">Click a cell to cycle through blank → Partial evidence → Direct evidence.</p>
         </div>
         <div class="table-wrap">
           <table class="evidence-table" id="evidence-table"></table>
@@ -154,8 +155,8 @@
 
       <section class="workspace-section">
         <div class="section-heading">
-          <h3>Assessment Items</h3>
-          <p>Assessment details can be entered here or from the relevant paper page. The assessed PLOs are carried through from the evidence table.</p>
+          <h3 id="assessment-items-title">Assessment Items</h3>
+          <p id="assessment-items-help">Assessment details can be entered here or from the relevant paper page. The assessed PLOs are carried through from the evidence table.</p>
         </div>
         <div class="metric-grid" id="assessment-metrics"></div>
         <div class="table-wrap">
@@ -165,8 +166,8 @@
 
       <section class="workspace-section">
         <div class="section-heading">
-          <h3>PLO Evidence Summary By Level</h3>
-          <p>Use this to see where each programme learning outcome is directly or partially assessed across 100-, 200-, and 300-level papers.</p>
+          <h3 id="assessment-summary-title">PLO Evidence Summary By Level</h3>
+          <p id="assessment-summary-help">Use this to see where each programme learning outcome is directly or partially assessed across 100-, 200-, and 300-level papers.</p>
         </div>
         <div class="table-wrap">
           <table class="plo-evidence-summary" id="plo-evidence-summary"></table>
@@ -175,16 +176,16 @@
 
       <section class="workspace-section">
         <div class="section-heading">
-          <h3>Programme Evidence of Learning</h3>
-          <p>Shows what evidence each paper contributes to a programme-level picture of student progress and capability development.</p>
+          <h3 id="programme-evidence-title">Programme Evidence of Learning</h3>
+          <p id="programme-evidence-help">Shows what evidence each paper contributes to a programme-level picture of student progress and capability development.</p>
         </div>
         <div class="programme-evidence-grid" id="programme-evidence-grid"></div>
       </section>
 
       <section class="workspace-section">
         <div class="section-heading">
-          <h3>Student Workload</h3>
-          <p>Assessment items are placed by due week. Higher-weight items are shown more strongly.</p>
+          <h3 id="student-workload-title">Student Workload</h3>
+          <p id="student-workload-help">Assessment items are placed by due week. Higher-weight items are shown more strongly.</p>
         </div>
         <div class="timeline" id="assessment-timeline"></div>
       </section>
@@ -193,8 +194,8 @@
     <section class="view" id="view-paper">
       <div class="view-heading">
         <div>
-          <h2>Paper Details</h2>
-          <p>Review each paper's programme contribution, course learning outcomes, learning activities, assessment, and internal alignment.</p>
+          <h2 id="paper-view-title">Paper Details</h2>
+          <p id="paper-view-help">Review each paper's programme contribution, course learning outcomes, learning activities, assessment, and internal alignment.</p>
         </div>
         <button class="button" id="paper-view-add-button">Add paper</button>
       </div>
@@ -202,7 +203,7 @@
       <div class="paper-layout">
         <aside class="paper-sidebar">
           <label class="search-field">
-            <span>Find a paper</span>
+            <span id="paper-search-label">Find a paper</span>
             <input id="paper-search" type="search" placeholder="Code or title">
           </label>
           <div id="paper-list"></div>
@@ -219,15 +220,15 @@
     <section class="view" id="view-actions">
       <div class="view-heading">
         <div>
-          <h2>Decisions & Actions</h2>
-          <p>Bring diagnosis notes from the programme, paper, and assessment pages into decisions and accountable actions.</p>
+          <h2 id="actions-view-title">Decisions & Actions</h2>
+          <p id="actions-view-help">Bring diagnosis notes from the programme, paper, and assessment pages into decisions and accountable actions.</p>
         </div>
         <button class="button" id="add-action-button">Add action</button>
       </div>
       <section class="workspace-section">
         <div class="section-heading">
-          <h3>Diagnosis Notes From Mapping</h3>
-          <p>These are carried through from programme notes, paper diagnosis notes, and assessment diagnosis notes.</p>
+          <h3 id="diagnosis-notes-title">Diagnosis Notes From Mapping</h3>
+          <p id="diagnosis-notes-help">These are carried through from programme notes, paper diagnosis notes, and assessment diagnosis notes.</p>
         </div>
         <div class="diagnosis-inbox" id="diagnosis-inbox"></div>
       </section>
@@ -258,6 +259,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=9"></script>
+  <script src="app.js?v=10"></script>
 </body>
 </html>
