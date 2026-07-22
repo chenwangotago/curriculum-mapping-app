@@ -596,6 +596,30 @@
     cloud.applyingRemote = false;
   }
 
+  function mergeTemplateFieldsFromCloudData(remoteData, render = false) {
+    if (!remoteData || typeof remoteData !== "object") return;
+    if (remoteData.wording) state.wording = normaliseWording(remoteData.wording);
+    if (remoteData.meta && Object.prototype.hasOwnProperty.call(remoteData.meta, "workspaceTitle")) {
+      state.meta ||= {};
+      state.meta.workspaceTitle = remoteData.meta.workspaceTitle || "";
+    }
+    if (render) {
+      renderWording();
+      renderHeader();
+      if (byId("view-programme")?.classList.contains("active")) renderCanvas();
+    }
+  }
+
+  async function mergeLatestTemplateFieldsBeforeEditSave() {
+    if (!cloud.enabled || !cloud.canEdit || cloud.canManageTemplate || !cloud.client) return;
+    const { data, error } = await cloud.client.rpc("load_curriculum_workspace", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token
+    });
+    if (error) throw error;
+    mergeTemplateFieldsFromCloudData(data.data || data, true);
+  }
+
   async function createCloudWorkspace() {
     if (!cloud.client && !(await configureCloud())) {
       alert("Cloud collaboration is not configured yet. Add Supabase values to config.js first.");
@@ -659,6 +683,7 @@
     if (!cloud.enabled || !cloud.canEdit || !cloud.client) return;
     try {
       dedupeConnections();
+      await mergeLatestTemplateFieldsBeforeEditSave();
       setCloudStatus("Syncing...");
       const { data, error } = await cloud.client.rpc("save_curriculum_workspace", {
         workspace_slug: cloud.workspace,
@@ -668,6 +693,7 @@
       if (error) throw error;
       cloud.pendingLocalChanges = false;
       cloud.lastUpdatedAt = data.updatedAt || cloud.lastUpdatedAt;
+      if (!cloud.canManageTemplate) mergeTemplateFieldsFromCloudData(data.data || data, true);
       setCloudStatus("Cloud synced", "online");
       byId("save-status").textContent = "Saved to cloud";
     } catch (error) {
@@ -1560,7 +1586,21 @@
     openDialog({
       title: "Programme Settings",
       fields,
-      onSave(values) { Object.assign(state.meta, values); renderHeader(); scheduleSave(); }
+      async onSave(values) {
+        Object.assign(state.meta, values);
+        renderHeader();
+        if (canManageTemplate(false)) {
+          try {
+            await flushPendingWorkspaceSave("Programme settings saved locally");
+            toast(cloud.enabled ? "Programme settings updated and synced" : "Programme settings updated");
+          } catch (error) {
+            alert(`Unable to sync programme settings: ${error.message}`);
+            throw error;
+          }
+        } else {
+          scheduleSave();
+        }
+      }
     });
   }
 
@@ -1597,7 +1637,7 @@
         { name: "actionsTitle", label: "Actions page title", value: w.actions.title },
         { name: "actionsHelp", label: "Actions page description", value: w.actions.help, type: "textarea" }
       ],
-      onSave(values) {
+      async onSave(values) {
         state.wording = normaliseWording({
           tabs: {
             programme: values.programmeTab,
@@ -1647,8 +1687,13 @@
           }
         });
         renderAll();
-        scheduleSave();
-        toast("Template wording updated");
+        try {
+          await flushPendingWorkspaceSave("Template wording saved locally");
+          toast(cloud.enabled ? "Template wording updated and synced" : "Template wording updated");
+        } catch (error) {
+          alert(`Unable to sync template wording: ${error.message}`);
+          throw error;
+        }
       }
     });
   }
@@ -2230,9 +2275,13 @@
   byId("dialog-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
-    await dialogContext?.onSave?.(values);
-    byId("edit-dialog").close();
-    dialogContext = null;
+    try {
+      await dialogContext?.onSave?.(values);
+      byId("edit-dialog").close();
+      dialogContext = null;
+    } catch (error) {
+      console.error("Dialog save failed", error);
+    }
   });
 
   byId("dialog-delete-button").addEventListener("click", () => {
