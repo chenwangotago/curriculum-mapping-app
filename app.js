@@ -196,6 +196,7 @@
   let connectionSource = null;
   let dialogContext = null;
   let saveTimer = null;
+  const deferredRender = new Set();
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -721,7 +722,7 @@
   }
 
   async function pollCloudWorkspace() {
-    if (!cloud.enabled || !cloud.client || cloud.pendingLocalChanges) return;
+    if (!cloud.enabled || !cloud.client || cloud.pendingLocalChanges || isTextEditingActive()) return;
     try {
       const { data, error } = await cloud.client.rpc("load_curriculum_workspace", {
         workspace_slug: cloud.workspace,
@@ -798,6 +799,7 @@
   }
 
   function renderAll() {
+    deferredRender.clear();
     renderWording();
     renderHeader();
     renderPlos();
@@ -807,6 +809,27 @@
     renderPaperEditor();
     renderAssessments();
     renderActions();
+  }
+
+  function deferRender(...targets) {
+    targets.forEach((target) => deferredRender.add(target));
+  }
+
+  function flushDeferredRender() {
+    if (!deferredRender.size) return;
+    const targets = new Set(deferredRender);
+    deferredRender.clear();
+    if (targets.has("paperList")) renderPaperList();
+    if (targets.has("mapping")) renderMappingTable();
+    if (targets.has("canvas")) renderCanvas();
+    if (targets.has("paperEditor")) renderPaperEditor();
+    if (targets.has("assessments")) renderAssessments();
+    if (targets.has("actions")) renderActions();
+  }
+
+  function isTextEditingActive() {
+    const active = document.activeElement;
+    return Boolean(active?.matches?.("input, textarea, [contenteditable='true']"));
   }
 
   function renderWording() {
@@ -1419,6 +1442,7 @@
   }
 
   function switchView(view) {
+    flushDeferredRender();
     $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
     $$(".view").forEach((element) => element.classList.toggle("active", element.id === `view-${view}`));
     if (view === "programme") requestAnimationFrame(drawConnections);
@@ -2138,7 +2162,7 @@
     if (note) {
       if (!canEditWorkspace(false)) return;
       state.notes[note.dataset.notePaper] = note.textContent.trim();
-      renderActions();
+      deferRender("actions");
       return scheduleSave();
     }
 
@@ -2169,11 +2193,11 @@
       if (!item) return;
       const field = paperField.dataset.paperField;
       item[field] = field === "level" ? Number(paperField.value) : paperField.value;
-      if (field === "code" || field === "title" || field === "status") renderPaperList();
+      if (field === "code" || field === "title" || field === "status") deferRender("paperList");
       if (field === "code" || field === "title" || field === "level") {
-        renderMappingTable(); renderCanvas(); renderAssessments();
+        deferRender("mapping", "canvas", "assessments");
       }
-      if (field === "diagnosisNote" || field === "agreedAction") renderActions();
+      if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
       return scheduleSave();
     }
 
@@ -2186,7 +2210,7 @@
       const field = assessmentField.dataset.assessmentField;
       const value = assessmentField.matches("input, textarea, select") ? assessmentField.value : assessmentField.textContent.trim();
       item[field] = ["week","weight"].includes(field) ? Number(value) : value;
-      if (field === "diagnosisNote") renderActions();
+      if (field === "diagnosisNote") deferRender("actions");
       return scheduleSave();
     }
 
@@ -2231,22 +2255,27 @@
     }
 
     if (event.target.closest("[data-assessment-field]")) {
-      renderPaperEditor();
-      renderAssessments();
+      deferRender("paperEditor", "assessments");
     }
     const changedPaperField = event.target.closest("[data-paper-field]");
     if (changedPaperField && ["learningOutcomes", "learningActivities"].includes(changedPaperField.dataset.paperField)) {
-      renderPaperEditor();
+      deferRender("paperEditor");
     }
     if (event.target.closest("[data-note-action-field]") || event.target.closest("[data-standalone-action-field]")) {
-      renderActions();
+      deferRender("actions");
     }
+    flushDeferredRender();
   });
 
   document.addEventListener("focusout", (event) => {
     if (event.target.closest(".editable-cell[data-assessment-field]")) {
-      renderPaperEditor();
-      renderAssessments();
+      deferRender("paperEditor", "assessments");
+    }
+    flushDeferredRender();
+    if (cloud.enabled) {
+      window.setTimeout(() => {
+        if (!isTextEditingActive()) pollCloudWorkspace();
+      }, 250);
     }
   });
 
