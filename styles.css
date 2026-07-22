@@ -111,6 +111,18 @@ button { cursor: pointer; }
   background: var(--blue);
 }
 
+.mode-button.danger-mode {
+  color: #a02f47;
+  border-color: #f0b8c4;
+  background: #fff7f8;
+}
+
+.mode-button.danger-mode.active {
+  color: white;
+  border-color: var(--red);
+  background: var(--red);
+}
+
 .button.danger-text {
   color: #a02f47;
   background: #fff7f8;

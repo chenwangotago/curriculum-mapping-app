@@ -31,7 +31,6 @@
     "Advanced synthesis / capstone"
   ];
   const CONNECTION_TYPES = ["required", "recommended", "related"];
-  const LEGACY_CLEAR_LINES_LABEL = "Clear lines";
   const DEFAULT_WORDING = {
     tabs: {
       programme: "1. Program",
@@ -67,10 +66,12 @@
       recommended: "Recommended progression",
       related: "Related",
       clearLines: "Undo last line",
+      remove: "Remove line",
       moveStatus: "Drag papers freely. Patterns and journeys emerge from where the team places papers.",
       requiredStatus: "Select the earlier paper, then the paper that must follow.",
       recommendedStatus: "Select the earlier paper, then the recommended next paper.",
       relatedStatus: "Select two related or mutually supporting papers.",
+      removeStatus: "Select the two papers whose relationship line should be removed.",
       selectedSuffix: "selected. Choose the second paper.",
       requiredKey: "Required before / must precede",
       recommendedKey: "Recommended progression",
@@ -288,11 +289,6 @@
   function getWording() {
     state.wording = normaliseWording(state.wording);
     return state.wording;
-  }
-
-  function networkClearButtonLabel() {
-    const label = getWording().network.clearLines || DEFAULT_WORDING.network.clearLines;
-    return label === LEGACY_CLEAR_LINES_LABEL ? DEFAULT_WORDING.network.clearLines : label;
   }
 
   function connectionTypeLabel(type) {
@@ -880,13 +876,12 @@
     setText("diagnosis-notes-title", w.actions.diagnosisTitle);
     setText("diagnosis-notes-help", w.actions.diagnosisHelp);
 
-    setText("clear-connections-button", networkClearButtonLabel());
-    byId("clear-connections-button").title = "Remove the most recently added relationship line.";
     const modeLabels = {
       move: w.network.move,
       required: w.network.required,
       recommended: w.network.recommended,
-      related: w.network.related
+      related: w.network.related,
+      remove: w.network.remove || "Remove line"
     };
     $$(".mode-button").forEach((button) => { button.textContent = modeLabels[button.dataset.mode] || button.textContent; });
     setText("canvas-status", w.network[`${canvasMode}Status`] || w.network.moveStatus);
@@ -1654,6 +1649,7 @@
         { name: "requiredLabel", label: "Required connection label", value: w.network.required },
         { name: "recommendedLabel", label: "Recommended connection label", value: w.network.recommended },
         { name: "relatedLabel", label: "Related connection label", value: w.network.related },
+        { name: "removeLabel", label: "Remove line mode label", value: w.network.remove || "Remove line" },
         { name: "assessmentTitle", label: "Assessment page title", value: w.assessment.title },
         { name: "assessmentHelp", label: "Assessment page description", value: w.assessment.help, type: "textarea" },
         { name: "paperTitle", label: "Paper page title", value: w.paper.title },
@@ -1692,7 +1688,8 @@
             move: values.moveLabel,
             required: values.requiredLabel,
             recommended: values.recommendedLabel,
-            related: values.relatedLabel
+            related: values.relatedLabel,
+            remove: values.removeLabel
           },
           assessment: {
             ...getWording().assessment,
@@ -1988,7 +1985,8 @@
       move: w.moveStatus,
       required: w.requiredStatus,
       recommended: w.recommendedStatus,
-      related: w.relatedStatus
+      related: w.relatedStatus,
+      remove: w.removeStatus || "Select the two papers whose relationship line should be removed."
     };
     byId("canvas-status").textContent = messages[mode];
   }
@@ -2005,8 +2003,26 @@
       return;
     }
     if (connectionSource !== paperId) {
-      upsertConnection(connectionSource, paperId, canvasMode);
-      scheduleSave(); drawConnections();
+      if (canvasMode === "remove") {
+        const before = state.connections.length;
+        state.connections = state.connections.filter((item) => !(
+          (item.from === connectionSource && item.to === paperId) ||
+          (item.from === paperId && item.to === connectionSource)
+        ));
+        const removedCount = before - state.connections.length;
+        if (removedCount) {
+          renderPaperEditor();
+          scheduleSave();
+          drawConnections();
+          toast(`${removedCount} relationship line${removedCount === 1 ? "" : "s"} removed`);
+        } else {
+          toast("No line found between those papers");
+        }
+      } else {
+        upsertConnection(connectionSource, paperId, canvasMode);
+        scheduleSave();
+        drawConnections();
+      }
     }
     setCanvasMode(canvasMode);
   }
@@ -2348,16 +2364,6 @@
     event.target.value = "";
   });
   byId("print-button").addEventListener("click", preparePrint);
-  byId("clear-connections-button").addEventListener("click", () => {
-    if (!canEditWorkspace()) return;
-    dedupeConnections();
-    const removed = state.connections.pop();
-    if (!removed) return toast("No relationship line to undo");
-    renderPaperEditor();
-    drawConnections();
-    scheduleSave();
-    toast("Last relationship line removed");
-  });
   window.addEventListener("resize", drawConnections);
   window.addEventListener("beforeprint", () => {
     document.body.classList.add("print-mode");
