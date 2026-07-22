@@ -658,7 +658,7 @@
     }
   }
 
-  async function mergeLatestCloudFieldsBeforeSave() {
+  async function mergeLatestCloudFieldsBeforeSave(options = {}) {
     if (!cloud.enabled || !cloud.canEdit || !cloud.client) return;
     const { data, error } = await cloud.client.rpc("load_curriculum_workspace", {
       workspace_slug: cloud.workspace,
@@ -667,7 +667,7 @@
     if (error) throw error;
     const remoteData = data.data || data;
     if (!cloud.canManageTemplate) mergeTemplateFieldsFromCloudData(remoteData, true);
-    mergeConnectionsFromCloudData(remoteData);
+    if (!options.preserveLocalConnections) mergeConnectionsFromCloudData(remoteData);
   }
 
   async function createCloudWorkspace() {
@@ -742,7 +742,7 @@
     const saveConnectionVersion = connectionChangeVersion;
     const savePromise = (async () => {
       dedupeConnections();
-      await mergeLatestCloudFieldsBeforeSave();
+      await mergeLatestCloudFieldsBeforeSave(options);
       setCloudStatus("Syncing...");
       const { data, error } = await cloud.client.rpc("save_curriculum_workspace", {
         workspace_slug: cloud.workspace,
@@ -776,14 +776,14 @@
     }
   }
 
-  async function flushPendingWorkspaceSave(message = "Saved locally") {
+  async function flushPendingWorkspaceSave(message = "Saved locally", options = {}) {
     if (!canEditWorkspace(false)) return;
     clearTimeout(saveTimer);
     clearTimeout(cloud.saveTimer);
     saveLocalStateNow(cloud.enabled ? "Saved locally; syncing..." : message);
     if (cloud.activeSavePromise) await cloud.activeSavePromise;
     if (cloud.enabled && cloud.canEdit && cloud.client) {
-      await saveCloudWorkspace({ rethrow: true });
+      await saveCloudWorkspace({ ...options, rethrow: true });
     }
   }
 
@@ -1974,14 +1974,14 @@
             }))
           }
         ],
-        onSave(values) {
+        async onSave(values) {
           if (!canEditWorkspace()) return;
           const snapshot = history.find((item) => item.id === values.snapshotId);
           if (!snapshot || !confirm(`Restore "${snapshot.label}"? Current cloud data will be replaced.`)) return;
           state = normaliseState(clone(snapshot.data));
           selectedPaperId = state.papers[0]?.id || null;
           renderAll();
-          scheduleSave("Restored and syncing");
+          await flushPendingWorkspaceSave("Restored and syncing", { preserveLocalConnections: true });
           toast("Cloud version restored");
         }
       });
@@ -1997,7 +1997,9 @@
       const text = await file.text();
       state = normaliseState(JSON.parse(text));
       selectedPaperId = state.papers[0]?.id || null;
-      renderAll(); scheduleSave("Imported and saved"); toast("Workspace imported");
+      renderAll();
+      await flushPendingWorkspaceSave("Imported and saved", { preserveLocalConnections: true });
+      toast("Workspace imported");
     } catch (error) {
       alert(`Unable to import this file: ${error.message}`);
     }
