@@ -1192,15 +1192,129 @@ dialog::backdrop { background: rgba(13,29,46,.55); }
   .metric-grid { grid-template-columns: 1fr; }
 }
 
+@page {
+  size: A4 landscape;
+  margin: 8mm;
+}
+
 @media print {
-  body { background: white; }
-  .app-header { color: var(--ink); background: white; border-bottom: 2px solid var(--navy); }
+  html,
+  body {
+    width: 100%;
+    background: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  body {
+    min-width: 0;
+    font-size: 10px;
+  }
+
+  .app-header {
+    padding: 0 0 8px;
+    color: var(--ink);
+    background: white;
+    border-bottom: 2px solid var(--navy);
+  }
+
   .app-header .eyebrow, .header-meta { color: var(--muted); }
   .header-actions, .app-tabs, .view-actions, .canvas-toolbar, button { display: none !important; }
-  main { max-width: none; padding: 0; }
-  .view { display: block !important; margin: 14px 0; border: 0; box-shadow: none; break-after: page; }
-  .paper-layout { grid-template-columns: 1fr; }
+
+  main {
+    width: 1680px;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    zoom: .62;
+  }
+
+  .view {
+    display: block !important;
+    overflow: visible !important;
+    margin: 10px 0 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    break-after: page;
+  }
+
+  .view:last-child { break-after: auto; }
+  .view-heading, .workspace-section { padding: 12px 0; }
+  .section-heading { margin-bottom: 8px; }
+
+  .table-wrap,
+  .mini-table-wrap,
+  .action-table-wrap,
+  .canvas-shell,
+  .pathway-canvas {
+    overflow: visible !important;
+  }
+
+  .mapping-table,
+  .assessment-table,
+  .evidence-table,
+  .plo-evidence-summary,
+  .mini-table,
+  .action-table {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  table { table-layout: auto; font-size: 10px; }
+  th, td {
+    padding: 6px;
+    overflow-wrap: anywhere;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .paper-cell { min-width: 150px; }
+  .discussion-note { min-width: 180px; }
+  .assessment-item-cell { min-width: 150px; }
+  .pathway-canvas {
+    height: 640px;
+    border: 1px solid var(--line);
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .paper-card {
+    box-shadow: none;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .paper-layout {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
   .paper-sidebar { display: none; }
   .diagnosis-panel { border: 0; }
-  .pathway-canvas { height: 640px; }
+  .paper-editor { padding: 0; }
+  .field-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .paper-section,
+  .internal-map,
+  .workspace-section,
+  .metric-card,
+  .programme-evidence-card,
+  .action-table tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  input,
+  textarea,
+  select,
+  .editable-box,
+  .editable-cell {
+    border-color: #cfdbe8;
+    background: white;
+  }
+
+  textarea {
+    min-height: 60px;
+  }
 }

@@ -419,6 +419,17 @@
     }, 180);
   }
 
+  function saveLocalStateNow(message = "Saved locally") {
+    dedupeConnections();
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      byId("save-status").textContent = message;
+    } catch (error) {
+      console.warn("Unable to save workspace locally", error);
+      byId("save-status").textContent = "Local save unavailable";
+    }
+  }
+
   function canEditWorkspace(showMessage = true) {
     const allowed = !cloud.enabled || cloud.canEdit;
     if (!allowed && showMessage) toast("This is a view-only link");
@@ -644,7 +655,7 @@
     cloud.saveTimer = setTimeout(saveCloudWorkspace, 900);
   }
 
-  async function saveCloudWorkspace() {
+  async function saveCloudWorkspace(options = {}) {
     if (!cloud.enabled || !cloud.canEdit || !cloud.client) return;
     try {
       dedupeConnections();
@@ -663,6 +674,17 @@
       console.error("Unable to save cloud workspace", error);
       setCloudStatus("Cloud sync failed", "error");
       byId("save-status").textContent = "Cloud sync failed";
+      if (options.rethrow) throw error;
+    }
+  }
+
+  async function flushPendingWorkspaceSave(message = "Saved locally") {
+    if (!canEditWorkspace(false)) return;
+    clearTimeout(saveTimer);
+    clearTimeout(cloud.saveTimer);
+    saveLocalStateNow(cloud.enabled ? "Saved locally; syncing..." : message);
+    if (cloud.enabled && cloud.canEdit && cloud.client) {
+      await saveCloudWorkspace({ rethrow: true });
     }
   }
 
@@ -1643,6 +1665,14 @@
     toast("JSON exported");
   }
 
+  function preparePrint() {
+    renderAll();
+    requestAnimationFrame(() => {
+      drawConnections();
+      window.print();
+    });
+  }
+
   function loadHistory() {
     try {
       return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
@@ -1651,26 +1681,60 @@
     }
   }
 
+  function formatSnapshotTimestamp(date = new Date()) {
+    return date.toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    });
+  }
+
+  function defaultSnapshotLabel() {
+    const programme = state.meta.programme && state.meta.programme !== "Untitled Programme" ? state.meta.programme : "Workspace";
+    return `${programme} snapshot · ${formatSnapshotTimestamp()}`;
+  }
+
+  function snapshotOptionLabel(item, index, total) {
+    const number = total - index;
+    const created = item.createdAt ? formatSnapshotTimestamp(new Date(item.createdAt)) : "time unknown";
+    return `#${number} · ${item.label} · ${created}`;
+  }
+
+  async function fetchCloudVersions() {
+    const { data, error } = await cloud.client.rpc("list_curriculum_workspace_versions", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  }
+
   function saveSnapshot() {
     if (!canEditWorkspace()) return;
     openDialog({
       title: "Save Version Snapshot",
       fields: [
-        { name: "label", label: "Snapshot label", value: `${state.meta.version || "Version"} · ${new Date().toLocaleDateString()}`, required: true },
+        { name: "label", label: "Snapshot label", value: defaultSnapshotLabel(), required: true },
         { name: "notes", label: "Version notes", value: "", type: "textarea" }
       ],
       async onSave(values) {
         try {
+          await flushPendingWorkspaceSave("Preparing version snapshot...");
+          const snapshotData = normaliseState(clone(state));
           if (cloud.enabled && cloud.canEdit && cloud.client) {
             const { error } = await cloud.client.rpc("create_curriculum_workspace_version", {
               workspace_slug: cloud.workspace,
               access_token: cloud.token,
               version_label: values.label,
               version_notes: values.notes,
-              version_data: state
+              version_data: snapshotData
             });
             if (error) throw error;
-            toast("Cloud version snapshot saved");
+            const versions = await fetchCloudVersions();
+            toast(`Cloud version snapshot saved (${versions.length} total)`);
             return;
           }
           const history = loadHistory();
@@ -1679,10 +1743,11 @@
             label: values.label,
             notes: values.notes,
             createdAt: new Date().toISOString(),
-            data: clone(state)
+            data: snapshotData
           });
-          localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, 20)));
-          toast("Version snapshot saved");
+          const savedHistory = history.slice(0, 20);
+          localStorage.setItem(HISTORY_KEY, JSON.stringify(savedHistory));
+          toast(`Version snapshot saved (${savedHistory.length} total)`);
         } catch (error) {
           alert(`Unable to save a version snapshot: ${error.message}`);
         }
@@ -1701,16 +1766,16 @@
       return;
     }
     openDialog({
-      title: "Restore Saved Version",
+      title: `Restore Saved Version (${history.length} saved)`,
       fields: [
         {
           name: "snapshotId",
           label: "Saved snapshot",
           value: history[0].id,
           type: "select",
-          options: history.map((item) => ({
+          options: history.map((item, index) => ({
             value: item.id,
-            label: `${item.label} · ${new Date(item.createdAt).toLocaleString()}`
+            label: snapshotOptionLabel(item, index, history.length)
           }))
         }
       ],
@@ -1728,27 +1793,22 @@
 
   async function openCloudVersions() {
     try {
-      const { data, error } = await cloud.client.rpc("list_curriculum_workspace_versions", {
-        workspace_slug: cloud.workspace,
-        access_token: cloud.token
-      });
-      if (error) throw error;
-      const history = Array.isArray(data) ? data : [];
+      const history = await fetchCloudVersions();
       if (!history.length) {
         toast("No cloud snapshots yet");
         return;
       }
       openDialog({
-        title: "Restore Cloud Version",
+        title: `Restore Cloud Version (${history.length} saved)`,
         fields: [
           {
             name: "snapshotId",
             label: "Saved snapshot",
             value: history[0].id,
             type: "select",
-            options: history.map((item) => ({
+            options: history.map((item, index) => ({
               value: item.id,
-              label: `${item.label} · ${new Date(item.createdAt).toLocaleString()}`
+              label: snapshotOptionLabel(item, index, history.length)
             }))
           }
         ],
@@ -2209,7 +2269,7 @@
     if (event.target.files[0]) importJson(event.target.files[0]);
     event.target.value = "";
   });
-  byId("print-button").addEventListener("click", () => window.print());
+  byId("print-button").addEventListener("click", preparePrint);
   byId("clear-connections-button").addEventListener("click", () => {
     if (!canEditWorkspace()) return;
     dedupeConnections();
@@ -2221,6 +2281,15 @@
     toast("Last relationship line removed");
   });
   window.addEventListener("resize", drawConnections);
+  window.addEventListener("beforeprint", () => {
+    document.body.classList.add("print-mode");
+    renderAll();
+    drawConnections();
+  });
+  window.addEventListener("afterprint", () => {
+    document.body.classList.remove("print-mode");
+    requestAnimationFrame(drawConnections);
+  });
 
   renderAll();
   updateShareButtons();
