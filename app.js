@@ -20,7 +20,8 @@
     applyingRemote: false,
     lastUpdatedAt: "",
     saveTimer: null,
-    pollTimer: null
+    pollTimer: null,
+    activeSavePromise: null
   };
   const ROLE_OPTIONS = [
     "Gateway / attracts students",
@@ -65,7 +66,7 @@
       required: "Required before",
       recommended: "Recommended progression",
       related: "Related",
-      clearLines: "Undo last line",
+      clearLines: "Remove line",
       remove: "Remove line",
       moveStatus: "Drag papers freely. Patterns and journeys emerge from where the team places papers.",
       requiredStatus: "Select the earlier paper, then the paper that must follow.",
@@ -198,6 +199,9 @@
   let dialogContext = null;
   let saveTimer = null;
   const deferredRender = new Set();
+  const connectionTombstones = new Set();
+  let pendingConnectionChange = false;
+  let connectionChangeVersion = 0;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -257,6 +261,52 @@
     state.connections = normaliseConnections(state.connections, validPaperIds);
   }
 
+  function connectionDirectionKey(from, to) {
+    return `${from}->${to}`;
+  }
+
+  function connectionPairKey(from, to) {
+    return [from, to].sort().join("<->");
+  }
+
+  function markConnectionChanged() {
+    pendingConnectionChange = true;
+    connectionChangeVersion += 1;
+  }
+
+  function markConnectionDeleted(from, to, scope = "direction") {
+    pendingConnectionChange = true;
+    connectionChangeVersion += 1;
+    const key = scope === "both"
+      ? `both:${connectionPairKey(from, to)}`
+      : `direction:${connectionDirectionKey(from, to)}`;
+    connectionTombstones.add(key);
+  }
+
+  function isConnectionTombstoned(connection) {
+    return connectionTombstones.has(`both:${connectionPairKey(connection.from, connection.to)}`)
+      || connectionTombstones.has(`direction:${connectionDirectionKey(connection.from, connection.to)}`);
+  }
+
+  function mergeConnectionsFromCloudData(remoteData) {
+    if (!remoteData || !Array.isArray(remoteData.connections)) return;
+    const validPaperIds = new Set(state.papers.map((paperItem) => paperItem.id));
+    const remoteConnections = normaliseConnections(remoteData.connections, validPaperIds);
+
+    if (!pendingConnectionChange) {
+      state.connections = remoteConnections;
+      return;
+    }
+
+    const merged = new Map();
+    remoteConnections
+      .filter((connection) => !isConnectionTombstoned(connection))
+      .forEach((connection) => merged.set(connectionDirectionKey(connection.from, connection.to), connection));
+    normaliseConnections(state.connections, validPaperIds)
+      .forEach((connection) => merged.set(connectionDirectionKey(connection.from, connection.to), connection));
+    state.connections = [...merged.values()];
+  }
+
   function upsertConnection(from, to, type) {
     if (!from || !to || from === to) return false;
     state.connections = state.connections.filter((item) => !(item.from === from && item.to === to));
@@ -268,6 +318,7 @@
       createdAt: new Date().toISOString()
     });
     dedupeConnections();
+    markConnectionChanged();
     return true;
   }
 
@@ -607,14 +658,16 @@
     }
   }
 
-  async function mergeLatestTemplateFieldsBeforeEditSave() {
-    if (!cloud.enabled || !cloud.canEdit || cloud.canManageTemplate || !cloud.client) return;
+  async function mergeLatestCloudFieldsBeforeSave() {
+    if (!cloud.enabled || !cloud.canEdit || !cloud.client) return;
     const { data, error } = await cloud.client.rpc("load_curriculum_workspace", {
       workspace_slug: cloud.workspace,
       access_token: cloud.token
     });
     if (error) throw error;
-    mergeTemplateFieldsFromCloudData(data.data || data, true);
+    const remoteData = data.data || data;
+    if (!cloud.canManageTemplate) mergeTemplateFieldsFromCloudData(remoteData, true);
+    mergeConnectionsFromCloudData(remoteData);
   }
 
   async function createCloudWorkspace() {
@@ -678,9 +731,18 @@
 
   async function saveCloudWorkspace(options = {}) {
     if (!cloud.enabled || !cloud.canEdit || !cloud.client) return;
-    try {
+    if (cloud.activeSavePromise) {
+      try {
+        await cloud.activeSavePromise;
+      } catch {
+        // The next save attempt below will report its own error if it also fails.
+      }
+    }
+
+    const saveConnectionVersion = connectionChangeVersion;
+    const savePromise = (async () => {
       dedupeConnections();
-      await mergeLatestTemplateFieldsBeforeEditSave();
+      await mergeLatestCloudFieldsBeforeSave();
       setCloudStatus("Syncing...");
       const { data, error } = await cloud.client.rpc("save_curriculum_workspace", {
         workspace_slug: cloud.workspace,
@@ -688,16 +750,29 @@
         next_data: state
       });
       if (error) throw error;
-      cloud.pendingLocalChanges = false;
       cloud.lastUpdatedAt = data.updatedAt || cloud.lastUpdatedAt;
+      if (connectionChangeVersion === saveConnectionVersion) {
+        cloud.pendingLocalChanges = false;
+        pendingConnectionChange = false;
+        connectionTombstones.clear();
+      } else {
+        cloud.pendingLocalChanges = true;
+      }
       if (!cloud.canManageTemplate) mergeTemplateFieldsFromCloudData(data.data || data, true);
       setCloudStatus("Cloud synced", "online");
       byId("save-status").textContent = "Saved to cloud";
+    })();
+
+    cloud.activeSavePromise = savePromise;
+    try {
+      await savePromise;
     } catch (error) {
       console.error("Unable to save cloud workspace", error);
       setCloudStatus("Cloud sync failed", "error");
       byId("save-status").textContent = "Cloud sync failed";
       if (options.rethrow) throw error;
+    } finally {
+      if (cloud.activeSavePromise === savePromise) cloud.activeSavePromise = null;
     }
   }
 
@@ -706,9 +781,30 @@
     clearTimeout(saveTimer);
     clearTimeout(cloud.saveTimer);
     saveLocalStateNow(cloud.enabled ? "Saved locally; syncing..." : message);
+    if (cloud.activeSavePromise) await cloud.activeSavePromise;
     if (cloud.enabled && cloud.canEdit && cloud.client) {
       await saveCloudWorkspace({ rethrow: true });
     }
+  }
+
+  function commitConnectionChange(message = "Relationship changes saved") {
+    clearTimeout(saveTimer);
+    clearTimeout(cloud.saveTimer);
+    cloud.pendingLocalChanges = true;
+    saveLocalStateNow(cloud.enabled ? "Saving relationship changes..." : "Saved locally");
+    if (!cloud.enabled || !cloud.canEdit || !cloud.client) {
+      toast(message);
+      return;
+    }
+
+    void (async () => {
+      try {
+        await saveCloudWorkspace({ rethrow: true });
+        toast(message);
+      } catch (error) {
+        alert(`Unable to save relationship changes: ${error.message}`);
+      }
+    })();
   }
 
   function startCloudPolling() {
@@ -2011,17 +2107,17 @@
         ));
         const removedCount = before - state.connections.length;
         if (removedCount) {
+          markConnectionDeleted(connectionSource, paperId, "both");
           renderPaperEditor();
-          scheduleSave();
           drawConnections();
-          toast(`${removedCount} relationship line${removedCount === 1 ? "" : "s"} removed`);
+          commitConnectionChange(`${removedCount} relationship line${removedCount === 1 ? "" : "s"} removed and saved`);
         } else {
           toast("No line found between those papers");
         }
       } else {
         upsertConnection(connectionSource, paperId, canvasMode);
-        scheduleSave();
         drawConnections();
+        commitConnectionChange("Relationship line saved");
       }
     }
     setCanvasMode(canvasMode);
@@ -2128,11 +2224,13 @@
     const deleteConnection = event.target.closest("[data-delete-connection]");
     if (deleteConnection) {
       if (!canEditWorkspace()) return;
-      state.connections = state.connections.filter((item) => item.id !== deleteConnection.dataset.deleteConnection);
+      const item = state.connections.find((connection) => connection.id === deleteConnection.dataset.deleteConnection);
+      if (!item) return;
+      markConnectionDeleted(item.from, item.to);
+      state.connections = state.connections.filter((connection) => connection.id !== item.id);
       renderPaperEditor();
       renderCanvas();
-      scheduleSave();
-      return toast("Relationship removed");
+      return commitConnectionChange("Relationship removed and saved");
     }
 
     const reverseConnection = event.target.closest("[data-reverse-connection]");
@@ -2140,12 +2238,12 @@
       if (!canEditWorkspace()) return;
       const item = state.connections.find((connection) => connection.id === reverseConnection.dataset.reverseConnection);
       if (!item) return;
+      markConnectionDeleted(item.from, item.to);
       state.connections = state.connections.filter((connection) => connection.id !== item.id);
       upsertConnection(item.to, item.from, item.type);
       renderPaperEditor();
       renderCanvas();
-      scheduleSave();
-      return toast("Relationship direction reversed");
+      return commitConnectionChange("Relationship direction reversed and saved");
     }
 
     const evidenceCell = event.target.closest(".evidence-cell");
@@ -2262,11 +2360,12 @@
       const from = field === "from" ? connectionField.value : item.from;
       const to = field === "to" ? connectionField.value : item.to;
       const type = field === "type" ? connectionField.value : item.type;
+      markConnectionDeleted(item.from, item.to);
       state.connections = state.connections.filter((connection) => connection.id !== item.id);
       upsertConnection(from, to, type);
       renderPaperEditor();
       renderCanvas();
-      scheduleSave();
+      commitConnectionChange("Relationship updated and saved");
       return;
     }
 
@@ -2310,10 +2409,12 @@
     if (line) {
       if (!canEditWorkspace()) return;
       event.preventDefault();
-      state.connections = state.connections.filter((item) => item.id !== line.dataset.connectionId);
+      const item = state.connections.find((connection) => connection.id === line.dataset.connectionId);
+      if (!item) return;
+      markConnectionDeleted(item.from, item.to);
+      state.connections = state.connections.filter((connection) => connection.id !== item.id);
       drawConnections();
-      scheduleSave();
-      toast("Connection removed");
+      commitConnectionChange("Connection removed and saved");
     }
   });
 
