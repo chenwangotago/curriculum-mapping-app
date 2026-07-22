@@ -30,6 +30,8 @@
     "Service / shared provision",
     "Advanced synthesis / capstone"
   ];
+  const CONNECTION_TYPES = ["required", "recommended", "related"];
+  const LEGACY_CLEAR_LINES_LABEL = "Clear lines";
   const DEFAULT_WORDING = {
     tabs: {
       programme: "1. Program",
@@ -64,7 +66,7 @@
       required: "Required before",
       recommended: "Recommended progression",
       related: "Related",
-      clearLines: "Clear lines",
+      clearLines: "Undo last line",
       moveStatus: "Drag papers freely. Patterns and journeys emerge from where the team places papers.",
       requiredStatus: "Select the earlier paper, then the paper that must follow.",
       recommendedStatus: "Select the earlier paper, then the recommended next paper.",
@@ -228,6 +230,45 @@
       .slice(0, 6);
   }
 
+  function normaliseConnections(value, validPaperIds = null) {
+    const latestByDirection = new Map();
+    (Array.isArray(value) ? value : []).forEach((item, index) => {
+      if (!item || typeof item !== "object") return;
+      const from = String(item.from || "");
+      const to = String(item.to || "");
+      if (!from || !to || from === to) return;
+      if (validPaperIds && (!validPaperIds.has(from) || !validPaperIds.has(to))) return;
+      const type = CONNECTION_TYPES.includes(item.type) ? item.type : "recommended";
+      latestByDirection.set(`${from}->${to}`, {
+        id: String(item.id || `connection-${index}-${from}-${to}`).replace(/[^a-z0-9_-]+/gi, "-"),
+        from,
+        to,
+        type,
+        createdAt: item.createdAt || ""
+      });
+    });
+    return [...latestByDirection.values()];
+  }
+
+  function dedupeConnections() {
+    const validPaperIds = new Set(state.papers.map((paperItem) => paperItem.id));
+    state.connections = normaliseConnections(state.connections, validPaperIds);
+  }
+
+  function upsertConnection(from, to, type) {
+    if (!from || !to || from === to) return false;
+    state.connections = state.connections.filter((item) => !(item.from === from && item.to === to));
+    state.connections.push({
+      id: uid("connection"),
+      from,
+      to,
+      type: CONNECTION_TYPES.includes(type) ? type : "recommended",
+      createdAt: new Date().toISOString()
+    });
+    dedupeConnections();
+    return true;
+  }
+
   function normaliseWording(value = {}) {
     value = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const base = clone(DEFAULT_WORDING);
@@ -246,6 +287,18 @@
   function getWording() {
     state.wording = normaliseWording(state.wording);
     return state.wording;
+  }
+
+  function networkClearButtonLabel() {
+    const label = getWording().network.clearLines || DEFAULT_WORDING.network.clearLines;
+    return label === LEGACY_CLEAR_LINES_LABEL ? DEFAULT_WORDING.network.clearLines : label;
+  }
+
+  function connectionTypeLabel(type) {
+    const labels = getWording().network;
+    if (type === "required") return labels.required;
+    if (type === "related") return labels.related;
+    return labels.recommended;
   }
 
   function getLevelBands() {
@@ -323,6 +376,7 @@
       evidence: item.evidence || {},
       diagnosisNote: item.diagnosisNote || ""
     }));
+    const validPaperIds = new Set(papers.map((paperItem) => paperItem.id));
     const actions = (Array.isArray(input.actions) ? input.actions : []).map((item) => ({
       ...item,
       status: item.status === "Done" ? "Completed" : (item.status || "To do"),
@@ -337,7 +391,7 @@
       alignments: input.alignments || {},
       notes: input.notes || {},
       pathways: Array.isArray(input.pathways) ? input.pathways : base.pathways,
-      connections: Array.isArray(input.connections) ? input.connections : [],
+      connections: normaliseConnections(input.connections, validPaperIds),
       assessments,
       actions,
       wording: normaliseWording(input.wording)
@@ -354,6 +408,7 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
+        dedupeConnections();
         localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         byId("save-status").textContent = cloud.enabled ? "Saved locally; syncing..." : message;
       } catch (error) {
@@ -592,6 +647,7 @@
   async function saveCloudWorkspace() {
     if (!cloud.enabled || !cloud.canEdit || !cloud.client) return;
     try {
+      dedupeConnections();
       setCloudStatus("Syncing...");
       const { data, error } = await cloud.client.rpc("save_curriculum_workspace", {
         workspace_slug: cloud.workspace,
@@ -753,7 +809,8 @@
     setText("diagnosis-notes-title", w.actions.diagnosisTitle);
     setText("diagnosis-notes-help", w.actions.diagnosisHelp);
 
-    setText("clear-connections-button", w.network.clearLines);
+    setText("clear-connections-button", networkClearButtonLabel());
+    byId("clear-connections-button").title = "Remove the most recently added relationship line.";
     const modeLabels = {
       move: w.network.move,
       required: w.network.required,
@@ -841,16 +898,50 @@
     `).join("")}</div>`;
   }
 
-  function paperNetworkSummary(paperItem) {
-    const rows = state.connections
+  function paperNetworkConnections(paperItem) {
+    const validPaperIds = new Set(state.papers.map((item) => item.id));
+    return normaliseConnections(state.connections, validPaperIds)
       .filter((connection) => connection.from === paperItem.id || connection.to === paperItem.id)
       .map((connection) => {
         const otherId = connection.from === paperItem.id ? connection.to : connection.from;
         const other = state.papers.find((item) => item.id === otherId);
-        const direction = connection.from === paperItem.id ? "leads to" : "comes after";
-        return `${connection.type}: ${direction} ${other?.code || "unknown paper"}`;
+        return { connection, other, isOutgoing: connection.from === paperItem.id };
       });
-    return rows.length ? rows : ["No network relationships mapped yet."];
+  }
+
+  function paperOptionsHtml(selectedId, excludeId) {
+    return state.papers
+      .filter((item) => item.id !== excludeId)
+      .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
+      .map((item) => `<option value="${item.id}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.code)} · ${escapeHtml(item.title)}</option>`)
+      .join("");
+  }
+
+  function relationshipDirectionLabel(connection, isOutgoing) {
+    if (connection.type === "related") return isOutgoing ? "relates to" : "is related from";
+    return isOutgoing ? "leads to" : "comes after";
+  }
+
+  function paperNetworkHtml(paperItem) {
+    const rows = paperNetworkConnections(paperItem);
+    if (!rows.length) return `<div class="empty-state compact">No network relationships mapped yet.</div>`;
+    return `<div class="relationship-list">${rows.map(({ connection, other, isOutgoing }) => `
+      <article class="relationship-item" data-connection-row="${connection.id}">
+        <div class="relationship-main">
+          <select data-connection-field="type" aria-label="Relationship type">
+            ${CONNECTION_TYPES.map((type) => `<option value="${type}" ${connection.type === type ? "selected" : ""}>${escapeHtml(connectionTypeLabel(type))}</option>`).join("")}
+          </select>
+          <span>${escapeHtml(relationshipDirectionLabel(connection, isOutgoing))}</span>
+          <select data-connection-field="${isOutgoing ? "to" : "from"}" aria-label="Related paper">
+            ${paperOptionsHtml(other?.id || "", paperItem.id)}
+          </select>
+        </div>
+        <div class="relationship-actions">
+          <button type="button" class="button" data-reverse-connection="${connection.id}">Reverse</button>
+          <button type="button" class="button danger-text" data-delete-connection="${connection.id}">Remove</button>
+        </div>
+      </article>
+    `).join("")}</div>`;
   }
 
   function renderCanvas() {
@@ -882,6 +973,7 @@
     const canvas = byId("pathway-canvas");
     if (!canvas) return;
     const canvasRect = canvas.getBoundingClientRect();
+    svg.setAttribute("viewBox", `0 0 ${canvasRect.width} ${canvasRect.height}`);
 
     state.connections.forEach((connection) => {
       const from = byId(`card-${connection.from}`);
@@ -889,14 +981,15 @@
       if (!from || !to) return;
       const a = from.getBoundingClientRect();
       const b = to.getBoundingClientRect();
+      const endpoints = connectionEndpoints(a, b, canvasRect);
       const style = connectionStyle(connection.type);
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.classList.add("connection");
       line.dataset.connectionId = connection.id;
-      line.setAttribute("x1", a.left - canvasRect.left + a.width / 2);
-      line.setAttribute("y1", a.top - canvasRect.top + a.height / 2);
-      line.setAttribute("x2", b.left - canvasRect.left + b.width / 2);
-      line.setAttribute("y2", b.top - canvasRect.top + b.height / 2);
+      line.setAttribute("x1", endpoints.start.x);
+      line.setAttribute("y1", endpoints.start.y);
+      line.setAttribute("x2", endpoints.end.x);
+      line.setAttribute("y2", endpoints.end.y);
       line.setAttribute("stroke", style.color);
       line.setAttribute("stroke-width", "3");
       line.setAttribute("stroke-dasharray", style.dash);
@@ -905,6 +998,34 @@
       line.style.pointerEvents = "stroke";
       svg.appendChild(line);
     });
+  }
+
+  function connectionEndpoints(fromRect, toRect, canvasRect) {
+    const startCenter = {
+      x: fromRect.left - canvasRect.left + fromRect.width / 2,
+      y: fromRect.top - canvasRect.top + fromRect.height / 2
+    };
+    const endCenter = {
+      x: toRect.left - canvasRect.left + toRect.width / 2,
+      y: toRect.top - canvasRect.top + toRect.height / 2
+    };
+    return {
+      start: cardEdgePoint(startCenter, endCenter, fromRect.width, fromRect.height, 5),
+      end: cardEdgePoint(endCenter, startCenter, toRect.width, toRect.height, 11)
+    };
+  }
+
+  function cardEdgePoint(center, target, width, height, padding = 0) {
+    const dx = target.x - center.x;
+    const dy = target.y - center.y;
+    if (!dx && !dy) return center;
+    const xScale = dx ? (width / 2 + padding) / Math.abs(dx) : Infinity;
+    const yScale = dy ? (height / 2 + padding) / Math.abs(dy) : Infinity;
+    const scale = Math.min(xScale, yScale);
+    return {
+      x: Math.round(center.x + dx * scale),
+      y: Math.round(center.y + dy * scale)
+    };
   }
 
   function connectionStyle(type) {
@@ -935,7 +1056,6 @@
     }
 
     const alignedPlos = supportedPlos(item);
-    const networkRows = paperNetworkSummary(item);
     const assessments = paperAssessments(item.id);
     const roles = ROLE_OPTIONS.map((role) => `
       <button type="button" class="role-chip ${item.roles?.includes(role) ? "selected" : ""}"
@@ -985,7 +1105,7 @@
         <div class="field wide"><span>Programme role / contribution</span><div class="role-options">${roles}</div></div>
         <div class="field wide"><span>Supported Programme Learning Outcomes</span><div class="plo-badge-grid">${ploBadges}</div></div>
         <div class="field wide"><span>Network relationships from Program page</span>
-          <ul class="derived-list">${networkRows.map((row) => `<li>${escapeHtml(row)}</li>`).join("")}</ul>
+          ${paperNetworkHtml(item)}
         </div>
       </div>
       <div class="paper-detail-stack">
@@ -1254,6 +1374,10 @@
     $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
     $$(".view").forEach((element) => element.classList.toggle("active", element.id === `view-${view}`));
     if (view === "programme") requestAnimationFrame(drawConnections);
+    if (view === "paper") {
+      renderPaperList();
+      renderPaperEditor();
+    }
   }
 
   function addPlo() {
@@ -1508,6 +1632,7 @@
   }
 
   function exportJson() {
+    dedupeConnections();
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
     const link = document.createElement("a");
     const safeName = (state.meta.programme || "curriculum-map").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -1751,8 +1876,7 @@
       return;
     }
     if (connectionSource !== paperId) {
-      const duplicate = state.connections.some((item) => item.from === connectionSource && item.to === paperId && item.type === canvasMode);
-      if (!duplicate) state.connections.push({ id: uid("connection"), from: connectionSource, to: paperId, type: canvasMode });
+      upsertConnection(connectionSource, paperId, canvasMode);
       scheduleSave(); drawConnections();
     }
     setCanvasMode(canvasMode);
@@ -1854,6 +1978,29 @@
       if (!canEditWorkspace()) return;
       state.assessments = state.assessments.filter((item) => item.id !== deleteAssessment.dataset.deleteAssessment);
       renderPaperEditor(); renderAssessments(); renderActions(); return scheduleSave();
+    }
+
+    const deleteConnection = event.target.closest("[data-delete-connection]");
+    if (deleteConnection) {
+      if (!canEditWorkspace()) return;
+      state.connections = state.connections.filter((item) => item.id !== deleteConnection.dataset.deleteConnection);
+      renderPaperEditor();
+      renderCanvas();
+      scheduleSave();
+      return toast("Relationship removed");
+    }
+
+    const reverseConnection = event.target.closest("[data-reverse-connection]");
+    if (reverseConnection) {
+      if (!canEditWorkspace()) return;
+      const item = state.connections.find((connection) => connection.id === reverseConnection.dataset.reverseConnection);
+      if (!item) return;
+      state.connections = state.connections.filter((connection) => connection.id !== item.id);
+      upsertConnection(item.to, item.from, item.type);
+      renderPaperEditor();
+      renderCanvas();
+      scheduleSave();
+      return toast("Relationship direction reversed");
     }
 
     const evidenceCell = event.target.closest(".evidence-cell");
@@ -1960,6 +2107,24 @@
   });
 
   document.addEventListener("change", (event) => {
+    const connectionField = event.target.closest("[data-connection-field]");
+    if (connectionField) {
+      if (!canEditWorkspace()) return;
+      const row = connectionField.closest("[data-connection-row]");
+      const item = state.connections.find((connection) => connection.id === row?.dataset.connectionRow);
+      if (!item) return;
+      const field = connectionField.dataset.connectionField;
+      const from = field === "from" ? connectionField.value : item.from;
+      const to = field === "to" ? connectionField.value : item.to;
+      const type = field === "type" ? connectionField.value : item.type;
+      state.connections = state.connections.filter((connection) => connection.id !== item.id);
+      upsertConnection(from, to, type);
+      renderPaperEditor();
+      renderCanvas();
+      scheduleSave();
+      return;
+    }
+
     if (event.target.closest("[data-assessment-field]")) {
       renderPaperEditor();
       renderAssessments();
@@ -2047,9 +2212,13 @@
   byId("print-button").addEventListener("click", () => window.print());
   byId("clear-connections-button").addEventListener("click", () => {
     if (!canEditWorkspace()) return;
-    if (!state.connections.length || confirm("Clear all pathway connections?")) {
-      state.connections = []; drawConnections(); scheduleSave();
-    }
+    dedupeConnections();
+    const removed = state.connections.pop();
+    if (!removed) return toast("No relationship line to undo");
+    renderPaperEditor();
+    drawConnections();
+    scheduleSave();
+    toast("Last relationship line removed");
   });
   window.addEventListener("resize", drawConnections);
 
