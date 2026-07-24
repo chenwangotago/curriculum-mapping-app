@@ -36,14 +36,52 @@ create table if not exists public.curriculum_workspace_versions (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.curriculum_workspace_comments (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.curriculum_workspaces(id) on delete cascade,
+  author text not null default 'Anonymous reviewer',
+  target text not null default 'Workspace',
+  body text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.curriculum_workspace_activity (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.curriculum_workspaces(id) on delete cascade,
+  author text not null default 'Unknown',
+  action text not null,
+  target text not null default 'Workspace',
+  details jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.curriculum_workspace_presence (
+  workspace_id uuid not null references public.curriculum_workspaces(id) on delete cascade,
+  client_id text not null,
+  author text not null default 'Unknown',
+  field_key text not null,
+  field_label text not null,
+  updated_at timestamptz not null default now(),
+  primary key (workspace_id, client_id)
+);
+
 alter table public.curriculum_workspaces enable row level security;
 alter table public.curriculum_workspace_versions enable row level security;
+alter table public.curriculum_workspace_comments enable row level security;
+alter table public.curriculum_workspace_activity enable row level security;
+alter table public.curriculum_workspace_presence enable row level security;
 
 -- Do not expose tables directly to the public anon role.
 drop policy if exists "No direct workspace access" on public.curriculum_workspaces;
 drop policy if exists "No direct version access" on public.curriculum_workspace_versions;
+drop policy if exists "No direct comment access" on public.curriculum_workspace_comments;
+drop policy if exists "No direct activity access" on public.curriculum_workspace_activity;
+drop policy if exists "No direct presence access" on public.curriculum_workspace_presence;
 create policy "No direct workspace access" on public.curriculum_workspaces for all using (false);
 create policy "No direct version access" on public.curriculum_workspace_versions for all using (false);
+create policy "No direct comment access" on public.curriculum_workspace_comments for all using (false);
+create policy "No direct activity access" on public.curriculum_workspace_activity for all using (false);
+create policy "No direct presence access" on public.curriculum_workspace_presence for all using (false);
 
 create or replace function public.touch_updated_at()
 returns trigger
@@ -267,6 +305,308 @@ begin
 end;
 $$;
 
+create or replace function public.create_curriculum_workspace_comment(
+  workspace_slug text,
+  access_token text,
+  comment_author text,
+  comment_body text,
+  comment_target text default 'Workspace'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+  comment curriculum_workspace_comments;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and (admin_token = access_token or edit_token = access_token or view_token = access_token);
+
+  if not found then
+    raise exception 'Workspace not found or token invalid';
+  end if;
+
+  insert into public.curriculum_workspace_comments (workspace_id, author, target, body)
+  values (
+    workspace.id,
+    coalesce(nullif(comment_author, ''), 'Anonymous reviewer'),
+    coalesce(nullif(comment_target, ''), 'Workspace'),
+    comment_body
+  )
+  returning * into comment;
+
+  insert into public.curriculum_workspace_activity (workspace_id, author, action, target, details)
+  values (
+    workspace.id,
+    comment.author,
+    'Added review comment',
+    comment.target,
+    jsonb_build_object('commentId', comment.id)
+  );
+
+  return jsonb_build_object(
+    'id', comment.id,
+    'author', comment.author,
+    'target', comment.target,
+    'body', comment.body,
+    'createdAt', comment.created_at
+  );
+end;
+$$;
+
+create or replace function public.list_curriculum_workspace_comments(workspace_slug text, access_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and (admin_token = access_token or edit_token = access_token or view_token = access_token);
+
+  if not found then
+    raise exception 'Workspace not found or token invalid';
+  end if;
+
+  return coalesce(
+    (
+      select jsonb_agg(jsonb_build_object(
+        'id', c.id,
+        'author', c.author,
+        'target', c.target,
+        'body', c.body,
+        'createdAt', c.created_at
+      ) order by c.created_at desc)
+      from (
+        select *
+        from public.curriculum_workspace_comments
+        where workspace_id = workspace.id
+        order by created_at desc
+        limit 200
+      ) c
+    ),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+create or replace function public.create_curriculum_workspace_activity(
+  workspace_slug text,
+  access_token text,
+  activity_author text,
+  activity_action text,
+  activity_target text default 'Workspace',
+  activity_details jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+  activity curriculum_workspace_activity;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and (admin_token = access_token or edit_token = access_token);
+
+  if not found then
+    raise exception 'Workspace not found, read-only, or token invalid';
+  end if;
+
+  insert into public.curriculum_workspace_activity (workspace_id, author, action, target, details)
+  values (
+    workspace.id,
+    coalesce(nullif(activity_author, ''), 'Unknown'),
+    activity_action,
+    coalesce(nullif(activity_target, ''), 'Workspace'),
+    coalesce(activity_details, '{}'::jsonb)
+  )
+  returning * into activity;
+
+  return jsonb_build_object(
+    'id', activity.id,
+    'author', activity.author,
+    'action', activity.action,
+    'target', activity.target,
+    'details', activity.details,
+    'createdAt', activity.created_at
+  );
+end;
+$$;
+
+create or replace function public.list_curriculum_workspace_activity(workspace_slug text, access_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and admin_token = access_token;
+
+  if not found then
+    raise exception 'Workspace not found, admin only, or token invalid';
+  end if;
+
+  return coalesce(
+    (
+      select jsonb_agg(jsonb_build_object(
+        'id', a.id,
+        'author', a.author,
+        'action', a.action,
+        'target', a.target,
+        'details', a.details,
+        'createdAt', a.created_at
+      ) order by a.created_at desc)
+      from (
+        select *
+        from public.curriculum_workspace_activity
+        where workspace_id = workspace.id
+        order by created_at desc
+        limit 300
+      ) a
+    ),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+create or replace function public.list_curriculum_workspace_presence(workspace_slug text, access_token text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and (admin_token = access_token or edit_token = access_token);
+
+  if not found then
+    raise exception 'Workspace not found, read-only, or token invalid';
+  end if;
+
+  delete from public.curriculum_workspace_presence
+  where workspace_id = workspace.id
+    and updated_at < now() - interval '20 seconds';
+
+  return coalesce(
+    (
+      select jsonb_agg(jsonb_build_object(
+        'clientId', p.client_id,
+        'author', p.author,
+        'fieldKey', p.field_key,
+        'fieldLabel', p.field_label,
+        'updatedAt', p.updated_at
+      ) order by p.updated_at desc)
+      from public.curriculum_workspace_presence p
+      where p.workspace_id = workspace.id
+    ),
+    '[]'::jsonb
+  );
+end;
+$$;
+
+create or replace function public.set_curriculum_workspace_presence(
+  workspace_slug text,
+  access_token text,
+  client_identifier text,
+  presence_author text,
+  presence_field_key text,
+  presence_field_label text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and (admin_token = access_token or edit_token = access_token);
+
+  if not found then
+    raise exception 'Workspace not found, read-only, or token invalid';
+  end if;
+
+  insert into public.curriculum_workspace_presence (workspace_id, client_id, author, field_key, field_label, updated_at)
+  values (
+    workspace.id,
+    client_identifier,
+    coalesce(nullif(presence_author, ''), 'Unknown'),
+    presence_field_key,
+    presence_field_label,
+    now()
+  )
+  on conflict (workspace_id, client_id)
+  do update set
+    author = excluded.author,
+    field_key = excluded.field_key,
+    field_label = excluded.field_label,
+    updated_at = now();
+
+  return public.list_curriculum_workspace_presence(workspace_slug, access_token);
+end;
+$$;
+
+create or replace function public.clear_curriculum_workspace_presence(
+  workspace_slug text,
+  access_token text,
+  client_identifier text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and (admin_token = access_token or edit_token = access_token);
+
+  if not found then
+    raise exception 'Workspace not found, read-only, or token invalid';
+  end if;
+
+  delete from public.curriculum_workspace_presence
+  where workspace_id = workspace.id
+    and client_id = client_identifier;
+
+  return public.list_curriculum_workspace_presence(workspace_slug, access_token);
+end;
+$$;
+
 grant usage on schema public to anon;
 grant usage on schema extensions to anon;
 grant execute on function public.create_curriculum_workspace(text, jsonb) to anon;
@@ -274,3 +614,10 @@ grant execute on function public.load_curriculum_workspace(text, text) to anon;
 grant execute on function public.save_curriculum_workspace(text, text, jsonb) to anon;
 grant execute on function public.create_curriculum_workspace_version(text, text, text, text, jsonb) to anon;
 grant execute on function public.list_curriculum_workspace_versions(text, text) to anon;
+grant execute on function public.create_curriculum_workspace_comment(text, text, text, text, text) to anon;
+grant execute on function public.list_curriculum_workspace_comments(text, text) to anon;
+grant execute on function public.create_curriculum_workspace_activity(text, text, text, text, text, jsonb) to anon;
+grant execute on function public.list_curriculum_workspace_activity(text, text) to anon;
+grant execute on function public.list_curriculum_workspace_presence(text, text) to anon;
+grant execute on function public.set_curriculum_workspace_presence(text, text, text, text, text, text) to anon;
+grant execute on function public.clear_curriculum_workspace_presence(text, text, text) to anon;

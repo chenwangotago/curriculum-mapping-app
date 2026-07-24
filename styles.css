@@ -134,11 +134,75 @@ button { cursor: pointer; }
 }
 
 body.read-only [contenteditable="true"],
+body.read-only [contenteditable="false"],
 body.read-only input,
 body.read-only textarea,
 body.read-only select {
-  pointer-events: none;
   background: #f6f8fb;
+}
+
+body.read-only input,
+body.read-only textarea,
+body.read-only [contenteditable="false"] {
+  pointer-events: auto;
+  cursor: text;
+}
+
+body.read-only textarea {
+  overflow: hidden;
+  resize: none;
+}
+
+body.read-only .editable-box,
+body.read-only .editable-cell,
+body.read-only .discussion-note {
+  min-height: auto;
+  white-space: pre-wrap;
+}
+
+.presence-conflict {
+  box-shadow: inset 0 0 0 2px #e5963f !important;
+  background: #fff7ed !important;
+}
+
+.comment-list,
+.activity-log-list {
+  display: grid;
+  gap: 10px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.comment-card,
+.activity-log-card {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fbfdff;
+}
+
+.comment-card b,
+.activity-log-card b {
+  display: block;
+  color: var(--navy);
+  font-size: 12.5px;
+}
+
+.comment-card small,
+.activity-log-card small {
+  display: block;
+  margin: 3px 0 7px;
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.comment-card p,
+.activity-log-card p {
+  margin: 0;
+  color: #4c5d72;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 .app-tabs {

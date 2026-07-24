@@ -3,6 +3,8 @@
 
   const STORAGE_KEY = "curriculum-mapping-workspace-v1";
   const HISTORY_KEY = "curriculum-mapping-workspace-history-v1";
+  const SESSION_NAME_KEY = "curriculum-mapping-session-name-v1";
+  const CLIENT_ID_KEY = "curriculum-mapping-client-id-v1";
   const CONFIG = window.CURRICULUM_MAPPING_CONFIG || {};
   const URL_PARAMS = new URLSearchParams(window.location.search);
   const cloud = {
@@ -32,6 +34,7 @@
     "Advanced synthesis / capstone"
   ];
   const CONNECTION_TYPES = ["required", "recommended", "related"];
+  const CONNECTION_TYPE_ORDER = { required: 0, recommended: 1, related: 2 };
   const DEFAULT_WORDING = {
     tabs: {
       programme: "1. Program",
@@ -202,11 +205,48 @@
   const connectionTombstones = new Set();
   let pendingConnectionChange = false;
   let connectionChangeVersion = 0;
+  let sessionName = "";
+  let clientId = "";
+  let reviewComments = [];
+  let activityLog = [];
+  let presenceRecords = [];
+  let presenceTimer = null;
+  let focusedEdit = null;
+  let activePresenceField = "";
+  let reviewBackendAvailable = true;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
   const byId = (id) => document.getElementById(id);
   const uid = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+
+  function localStorageGet(key, fallback = "") {
+    try {
+      return localStorage.getItem(key) || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function localStorageSet(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch (error) {
+      console.warn("Unable to write local preference", error);
+    }
+  }
+
+  function workspaceScopedKey(baseKey) {
+    return `${baseKey}:${cloud.workspace || "local"}`;
+  }
+
+  function getClientId() {
+    const existing = localStorageGet(CLIENT_ID_KEY);
+    if (existing) return existing;
+    const next = uid("client");
+    localStorageSet(CLIENT_ID_KEY, next);
+    return next;
+  }
 
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
@@ -589,6 +629,264 @@
     return true;
   }
 
+  function refreshSessionIdentity() {
+    clientId = clientId || getClientId();
+    sessionName = localStorageGet(workspaceScopedKey(SESSION_NAME_KEY)) || localStorageGet(SESSION_NAME_KEY);
+    updateShareButtons();
+  }
+
+  function setSessionName(value) {
+    sessionName = String(value || "").trim();
+    if (sessionName) {
+      localStorageSet(workspaceScopedKey(SESSION_NAME_KEY), sessionName);
+      localStorageSet(SESSION_NAME_KEY, sessionName);
+    }
+    updateShareButtons();
+    return sessionName;
+  }
+
+  function ensureSessionName(reason = "identify your contribution") {
+    refreshSessionIdentity();
+    if (sessionName) return sessionName;
+    const entered = window.prompt(`Please enter your name so the workspace can ${reason}.`, "");
+    return setSessionName(entered || "Anonymous reviewer");
+  }
+
+  function rpcUnavailable(error) {
+    const message = String(error?.message || error || "");
+    return /function .* does not exist|Could not find the function|schema cache|does not exist/i.test(message);
+  }
+
+  function reviewBackendMissingMessage() {
+    return "Review comments, activity log, and editing-presence need the latest Supabase SQL migration. Run the updated supabase-schema.sql once in Supabase.";
+  }
+
+  async function callReviewRpc(name, params, options = {}) {
+    if (!cloud.enabled || !cloud.client) return null;
+    if (!reviewBackendAvailable && !options.force) return null;
+    const { data, error } = await cloud.client.rpc(name, params);
+    if (error) {
+      if (rpcUnavailable(error)) {
+        reviewBackendAvailable = false;
+        if (!options.silent) toast(reviewBackendMissingMessage());
+        return null;
+      }
+      throw error;
+    }
+    return data;
+  }
+
+  function currentViewLabel() {
+    const activeTab = $(".tab.active");
+    return activeTab?.textContent?.trim() || "Workspace";
+  }
+
+  function commentTargetOptions() {
+    const options = [
+      { value: currentViewLabel(), label: `Current view: ${currentViewLabel()}` },
+      { value: "Program page", label: "Program page" },
+      { value: "Assessment page", label: "Assessment page" },
+      { value: "Paper page", label: "Paper page" },
+      { value: "Actions page", label: "Actions page" }
+    ];
+    const selected = state.papers.find((paperItem) => paperItem.id === selectedPaperId);
+    if (selected) options.unshift({ value: `Paper: ${selected.code}`, label: `Selected paper: ${selected.code} · ${selected.title}` });
+    return options;
+  }
+
+  function reviewCommentHtml() {
+    if (!reviewComments.length) return `<div class="empty-state compact">No comments yet.</div>`;
+    return `<div class="comment-list">${reviewComments.map((comment) => `
+      <article class="comment-card">
+        <b>${escapeHtml(comment.author || "Anonymous reviewer")}</b>
+        <small>${escapeHtml(comment.target || "Workspace")} · ${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</small>
+        <p>${escapeHtml(comment.body || "")}</p>
+      </article>
+    `).join("")}</div>`;
+  }
+
+  async function fetchReviewComments(silent = false) {
+    const data = await callReviewRpc("list_curriculum_workspace_comments", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token
+    }, { silent });
+    if (Array.isArray(data)) reviewComments = data;
+    return reviewComments;
+  }
+
+  async function createReviewComment(values) {
+    const author = ensureSessionName("add review comments");
+    const body = String(values.body || "").trim();
+    if (!body) return toast("Comment is empty");
+    const data = await callReviewRpc("create_curriculum_workspace_comment", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token,
+      comment_author: author,
+      comment_body: body,
+      comment_target: values.target || currentViewLabel()
+    });
+    if (!data) return;
+    await fetchReviewComments(true);
+    toast("Comment added");
+  }
+
+  async function openComments() {
+    if (!cloud.enabled) return toast("Comments are available on cloud links.");
+    ensureSessionName("add review comments");
+    reviewBackendAvailable = true;
+    try {
+      await fetchReviewComments();
+      openDialog({
+        eyebrow: cloud.canEdit ? "Comments" : "Review",
+        title: "Review Comments",
+        fields: [
+          { name: "existingComments", type: "html", html: reviewCommentHtml() },
+          { name: "target", label: "Comment relates to", value: commentTargetOptions()[0]?.value || "Workspace", type: "select", options: commentTargetOptions() },
+          { name: "body", label: "Add a comment", value: "", type: "textarea", required: true }
+        ],
+        async onSave(values) {
+          await createReviewComment(values);
+        }
+      });
+    } catch (error) {
+      alert(`Unable to open comments: ${error.message}`);
+    }
+  }
+
+  function activityLogHtml() {
+    if (!activityLog.length) return `<div class="empty-state compact">No activity logged yet.</div>`;
+    return `<div class="activity-log-list">${activityLog.map((item) => `
+      <article class="activity-log-card">
+        <b>${escapeHtml(item.action || "Workspace activity")}</b>
+        <small>${escapeHtml(item.author || "Unknown")} · ${escapeHtml(item.target || "Workspace")} · ${escapeHtml(formatSnapshotTimestamp(new Date(item.createdAt || Date.now())))}</small>
+        <p>${escapeHtml(item.detailsText || "")}</p>
+      </article>
+    `).join("")}</div>`;
+  }
+
+  async function fetchActivityLog() {
+    const data = await callReviewRpc("list_curriculum_workspace_activity", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token
+    });
+    if (Array.isArray(data)) {
+      activityLog = data.map((item) => ({
+        ...item,
+        detailsText: item.details ? JSON.stringify(item.details, null, 2) : ""
+      }));
+    }
+    return activityLog;
+  }
+
+  async function openActivityLog() {
+    if (!cloud.canManageTemplate) return toast("Only the admin link can view the activity log.");
+    reviewBackendAvailable = true;
+    try {
+      await fetchActivityLog();
+      openDialog({
+        eyebrow: "Admin",
+        title: "Activity Log",
+        fields: [
+          { name: "activity", type: "html", html: activityLogHtml() }
+        ],
+        onSave() {}
+      });
+    } catch (error) {
+      alert(`Unable to open activity log: ${error.message}`);
+    }
+  }
+
+  async function logActivity(action, target, details = {}) {
+    if (!cloud.enabled || !cloud.client || !cloud.canEdit) return;
+    const author = ensureSessionName("record who changed the workspace");
+    await callReviewRpc("create_curriculum_workspace_activity", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token,
+      activity_author: author,
+      activity_action: action,
+      activity_target: target,
+      activity_details: details
+    }, { silent: true });
+  }
+
+  function activePresenceForField(fieldKey) {
+    if (!fieldKey) return [];
+    return presenceRecords.filter((item) => item.clientId !== clientId && item.fieldKey === fieldKey);
+  }
+
+  function applyPresenceIndicators() {
+    $$("[data-presence-key]").forEach((element) => {
+      const conflicts = activePresenceForField(element.dataset.presenceKey);
+      element.classList.toggle("presence-conflict", conflicts.length > 0);
+      element.title = conflicts.length
+        ? `${conflicts.map((item) => item.author || "Someone").join(", ")} editing this field`
+        : "";
+    });
+  }
+
+  async function fetchPresence(silent = false) {
+    if (!cloud.enabled || !cloud.canEdit) return [];
+    const data = await callReviewRpc("list_curriculum_workspace_presence", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token
+    }, { silent });
+    if (Array.isArray(data)) {
+      presenceRecords = data.map((item) => ({
+        clientId: item.clientId,
+        author: item.author,
+        fieldKey: item.fieldKey,
+        fieldLabel: item.fieldLabel,
+        updatedAt: item.updatedAt
+      }));
+      applyPresenceIndicators();
+    }
+    return presenceRecords;
+  }
+
+  async function setPresence(field) {
+    if (!cloud.enabled || !cloud.canEdit || !field?.key) return;
+    const author = ensureSessionName("show who is editing");
+    activePresenceField = field.key;
+    const data = await callReviewRpc("set_curriculum_workspace_presence", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token,
+      client_identifier: clientId,
+      presence_author: author,
+      presence_field_key: field.key,
+      presence_field_label: field.label
+    }, { silent: true });
+    if (Array.isArray(data)) {
+      presenceRecords = data.map((item) => ({
+        clientId: item.clientId,
+        author: item.author,
+        fieldKey: item.fieldKey,
+        fieldLabel: item.fieldLabel,
+        updatedAt: item.updatedAt
+      }));
+      const conflicts = activePresenceForField(field.key);
+      if (conflicts.length) toast(`${conflicts.map((item) => item.author || "Someone").join(", ")} is also editing ${field.label}`);
+      applyPresenceIndicators();
+    }
+  }
+
+  async function clearPresence() {
+    if (!cloud.enabled || !cloud.canEdit || !activePresenceField) return;
+    activePresenceField = "";
+    await callReviewRpc("clear_curriculum_workspace_presence", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token,
+      client_identifier: clientId
+    }, { silent: true });
+  }
+
+  function markDiscreteEditPresence(field) {
+    if (!cloud.enabled || !cloud.canEdit || !field?.key) return;
+    void setPresence(field);
+    window.setTimeout(() => {
+      if (activePresenceField === field.key && !focusedEdit) void clearPresence();
+    }, 3500);
+  }
+
   async function initCloud() {
     if (!(await configureCloud())) {
       updateShareButtons();
@@ -620,11 +918,15 @@
       cloud.editToken = data.editToken || (cloud.canEdit && !cloud.canManageTemplate ? cloud.token : "");
       cloud.viewToken = data.viewToken || (!cloud.canEdit ? cloud.token : "");
       cloud.lastUpdatedAt = data.updatedAt || "";
+      reviewBackendAvailable = true;
+      refreshSessionIdentity();
       selectedPaperId = state.papers[0]?.id || null;
       renderAll();
       updateShareButtons();
       setCloudStatus(cloudAccessLabel(), cloud.canEdit ? "online" : "readonly");
       startCloudPolling();
+      void fetchReviewComments(true);
+      void fetchPresence(true);
     } catch (error) {
       console.error("Unable to load cloud workspace", error);
       setCloudStatus("Cloud link invalid", "error");
@@ -708,6 +1010,7 @@
           cloud.editToken = data.editToken;
           cloud.viewToken = data.viewToken;
           cloud.lastUpdatedAt = data.updatedAt || "";
+          refreshSessionIdentity();
           const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.adminToken);
           window.history.replaceState(null, "", nextUrl);
           updateShareButtons();
@@ -811,6 +1114,20 @@
     clearInterval(cloud.pollTimer);
     const interval = Number(CONFIG.syncIntervalMs || 4000);
     cloud.pollTimer = setInterval(pollCloudWorkspace, Math.max(2500, interval));
+    startPresencePolling();
+  }
+
+  function startPresencePolling() {
+    clearInterval(presenceTimer);
+    if (!cloud.enabled || !cloud.canEdit) return;
+    presenceTimer = setInterval(() => {
+      if (focusedEdit) {
+        void setPresence({ key: focusedEdit.key, label: focusedEdit.label });
+      } else if (!isTextEditingActive()) {
+        void clearPresence();
+      }
+      void fetchPresence(true);
+    }, 5000);
   }
 
   async function pollCloudWorkspace() {
@@ -861,10 +1178,17 @@
     const adminButton = byId("copy-admin-link-button");
     const editButton = byId("copy-edit-link-button");
     const viewButton = byId("copy-view-link-button");
+    const sessionButton = byId("session-name-button");
+    const commentsButton = byId("comments-button");
+    const activityButton = byId("activity-log-button");
     byId("create-cloud-workspace-button").hidden = cloud.enabled;
     adminButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.adminToken || cloud.token));
     editButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.editToken || cloud.token));
     viewButton.hidden = !(cloud.enabled && cloud.canManageTemplate && cloud.viewToken);
+    sessionButton.hidden = !cloud.enabled;
+    commentsButton.hidden = !cloud.enabled;
+    activityButton.hidden = !(cloud.enabled && cloud.canManageTemplate);
+    sessionButton.textContent = sessionName ? `Name: ${sessionName}` : "My name";
     document.body.classList.toggle("read-only", cloud.enabled && !cloud.canEdit);
     const lockForReadOnly = cloud.enabled && !cloud.canEdit;
     $$("[data-requires-edit], #add-plo-button, #add-paper-button, #paper-view-add-button, #add-assessment-button, #add-action-button, #save-snapshot-button")
@@ -874,6 +1198,27 @@
     byId("wording-settings-button").hidden = cloud.enabled && !cloud.canManageTemplate;
     byId("new-template-button").hidden = cloud.enabled && !cloud.canManageTemplate;
     byId("import-button").hidden = cloud.enabled && !cloud.canManageTemplate;
+    setReadOnlyFields(lockForReadOnly);
+  }
+
+  function setReadOnlyFields(readOnly) {
+    $$("main input, main textarea").forEach((field) => {
+      field.readOnly = readOnly;
+      if (readOnly && field.tagName === "TEXTAREA") {
+        field.style.height = "auto";
+        field.style.height = `${Math.max(field.scrollHeight + 4, field.offsetHeight)}px`;
+      } else if (!readOnly) {
+        field.style.height = "";
+      }
+    });
+    $$("main select").forEach((field) => { field.disabled = readOnly; });
+    $$("main [contenteditable]").forEach((field) => {
+      field.setAttribute("contenteditable", readOnly ? "false" : "true");
+    });
+  }
+
+  function applyReadOnlyStateSoon() {
+    requestAnimationFrame(() => setReadOnlyFields(cloud.enabled && !cloud.canEdit));
   }
 
   function escapeHtml(value = "") {
@@ -901,6 +1246,7 @@
     renderPaperEditor();
     renderAssessments();
     renderActions();
+    applyReadOnlyStateSoon();
   }
 
   function deferRender(...targets) {
@@ -917,6 +1263,7 @@
     if (targets.has("paperEditor")) renderPaperEditor();
     if (targets.has("assessments")) renderAssessments();
     if (targets.has("actions")) renderActions();
+    applyReadOnlyStateSoon();
   }
 
   function isTextEditingActive() {
@@ -1068,6 +1415,15 @@
         const otherId = connection.from === paperItem.id ? connection.to : connection.from;
         const other = state.papers.find((item) => item.id === otherId);
         return { connection, other, isOutgoing: connection.from === paperItem.id };
+      })
+      .sort((a, b) => {
+        const typeOrder = (CONNECTION_TYPE_ORDER[a.connection.type] ?? 99) - (CONNECTION_TYPE_ORDER[b.connection.type] ?? 99);
+        if (typeOrder) return typeOrder;
+        const levelOrder = (a.other?.level || 0) - (b.other?.level || 0);
+        if (levelOrder) return levelOrder;
+        const codeOrder = String(a.other?.code || "").localeCompare(String(b.other?.code || ""));
+        if (codeOrder) return codeOrder;
+        return String(a.other?.title || "").localeCompare(String(b.other?.title || ""));
       });
   }
 
@@ -1523,6 +1879,9 @@
 
   function fieldHtml(field) {
     const value = escapeHtml(field.value ?? "");
+    if (field.type === "html") {
+      return `<div class="dialog-field html-field">${field.html || ""}</div>`;
+    }
     if (field.type === "textarea") {
       return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><textarea id="field-${field.name}" name="${field.name}" ${field.required ? "required" : ""}>${value}</textarea></div>`;
     }
@@ -1541,6 +1900,7 @@
       renderPaperList();
       renderPaperEditor();
     }
+    applyReadOnlyStateSoon();
   }
 
   function addPlo() {
@@ -1827,12 +2187,199 @@
     toast("JSON exported");
   }
 
-  function preparePrint() {
-    renderAll();
-    requestAnimationFrame(() => {
-      drawConnections();
-      window.print();
-    });
+  function printableText(value) {
+    return escapeHtml(value || "").replace(/\n/g, "<br>");
+  }
+
+  function printableRoles(paperItem) {
+    return (paperItem.roles || []).length ? paperItem.roles.join("; ") : "No role selected";
+  }
+
+  function printableAlignmentValue(paperId, ploId) {
+    return state.alignments[paperId]?.[ploId] || "–";
+  }
+
+  function printableRelationshipRows() {
+    const validPaperIds = new Set(state.papers.map((paperItem) => paperItem.id));
+    return normaliseConnections(state.connections, validPaperIds)
+      .slice()
+      .sort((a, b) => {
+        const typeOrder = (CONNECTION_TYPE_ORDER[a.type] ?? 99) - (CONNECTION_TYPE_ORDER[b.type] ?? 99);
+        if (typeOrder) return typeOrder;
+        return paperLabel(a.from).localeCompare(paperLabel(b.from)) || paperLabel(a.to).localeCompare(paperLabel(b.to));
+      })
+      .map((connection) => `<tr><td>${escapeHtml(connectionTypeLabel(connection.type))}</td><td>${escapeHtml(paperLabel(connection.from))}</td><td>${escapeHtml(paperLabel(connection.to))}</td></tr>`)
+      .join("") || `<tr><td colspan="3">No relationships mapped.</td></tr>`;
+  }
+
+  function printableActionRows() {
+    const diagnosis = collectDiagnosisNotes();
+    const diagnosisRows = diagnosis.map((note) => {
+      const action = actionForDiagnosis(note.id);
+      return `<tr>
+        <td>${escapeHtml(note.source)}<br><b>${escapeHtml(note.title)}</b><br>${printableText(note.note)}</td>
+        <td>${printableText(action?.decision || "")}</td>
+        <td>${escapeHtml(action?.status || "To do")}</td>
+        <td>${escapeHtml(action?.owner || "")}</td>
+        <td>${printableText(action?.notes || "")}</td>
+      </tr>`;
+    }).join("");
+    const standaloneRows = state.actions
+      .filter((action) => !action.sourceId)
+      .map((action) => `<tr>
+        <td>Standalone action<br><b>${escapeHtml(action.title)}</b></td>
+        <td>${printableText(action.decision || "")}</td>
+        <td>${escapeHtml(action.status || "To do")}</td>
+        <td>${escapeHtml(action.owner || "")}</td>
+        <td>${printableText(action.notes || "")}</td>
+      </tr>`).join("");
+    return diagnosisRows || standaloneRows ? `${diagnosisRows}${standaloneRows}` : `<tr><td colspan="5">No actions or diagnosis notes.</td></tr>`;
+  }
+
+  function printableReportHtml() {
+    const sortedPapers = state.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code));
+    const reportDate = formatSnapshotTimestamp();
+    const ploHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
+    const alignmentRows = sortedPapers.map((paperItem) => `<tr>
+      <td><b>${escapeHtml(paperItem.code)}</b><br>${escapeHtml(paperItem.title)}</td>
+      ${state.plos.map((plo) => `<td>${escapeHtml(printableAlignmentValue(paperItem.id, plo.id))}</td>`).join("")}
+      <td>${printableText(state.notes[paperItem.id] || "")}</td>
+    </tr>`).join("");
+    const assessmentRows = state.assessments.map((item) => `<tr>
+      <td>${escapeHtml(paperLabel(item.paperId))}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.week)}</td>
+      <td>${escapeHtml(item.weight)}%</td>
+      <td>${escapeHtml(item.mode || "")}</td>
+      <td>${printableText(item.purpose || "")}</td>
+      <td>${printableText(item.aiContext || "")}</td>
+      <td>${printableText(item.diagnosisNote || "")}</td>
+    </tr>`).join("") || `<tr><td colspan="8">No assessment items.</td></tr>`;
+    const evidenceRows = state.assessments.map((item) => `<tr>
+      <td>${escapeHtml(paperLabel(item.paperId))}<br><b>${escapeHtml(item.name)}</b></td>
+      ${state.plos.map((plo) => `<td>${escapeHtml(item.evidence?.[plo.id] || "–")}</td>`).join("")}
+    </tr>`).join("") || `<tr><td colspan="${state.plos.length + 1}">No assessment evidence mapped.</td></tr>`;
+    const commentsRows = reviewComments.map((comment) => `<tr>
+      <td>${escapeHtml(comment.author || "Anonymous reviewer")}</td>
+      <td>${escapeHtml(comment.target || "Workspace")}</td>
+      <td>${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</td>
+      <td>${printableText(comment.body || "")}</td>
+    </tr>`).join("") || `<tr><td colspan="4">No review comments.</td></tr>`;
+    const paperSections = sortedPapers.map((paperItem) => {
+      const alignedPlos = supportedPlos(paperItem);
+      const relationships = paperNetworkConnections(paperItem)
+        .map(({ connection, other, isOutgoing }) => `${connectionTypeLabel(connection.type)}: ${relationshipDirectionLabel(connection, isOutgoing)} ${other ? `${other.code} · ${other.title}` : "unknown paper"}`)
+        .join("\n");
+      const assessments = paperAssessments(paperItem.id)
+        .map((item) => `${item.name}; week ${item.week}; ${item.weight}%; ${item.mode}; ${assessmentPloSummary(item)}`)
+        .join("\n");
+      return `<section class="paper-print-block">
+        <h3>${escapeHtml(paperItem.code)} · ${escapeHtml(paperItem.title)}</h3>
+        <table>
+          <tbody>
+            <tr><th>Level</th><td>${escapeHtml(paperItem.level)}</td><th>Status</th><td>${escapeHtml(paperItem.status || "")}</td></tr>
+            <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
+            <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code} ${plo.level}`).join("; ") || "None mapped")}</td></tr>
+            <tr><th>Network relationships</th><td colspan="3">${printableText(relationships || "No network relationships mapped.")}</td></tr>
+            <tr><th>Course Learning Outcomes</th><td colspan="3">${printableText(paperItem.learningOutcomes || "")}</td></tr>
+            <tr><th>Learning Activities</th><td colspan="3">${printableText(paperItem.learningActivities || "")}</td></tr>
+            <tr><th>Key concepts</th><td colspan="3">${printableText(paperItem.concepts || "")}</td></tr>
+            <tr><th>Assessment</th><td colspan="3">${printableText(assessments || "No assessment items.")}</td></tr>
+            <tr><th>Diagnosis note</th><td colspan="3">${printableText(paperItem.diagnosisNote || "")}</td></tr>
+          </tbody>
+        </table>
+      </section>`;
+    }).join("");
+
+    return `<!doctype html>
+      <html lang="en">
+      <head>
+        <meta charset="utf-8">
+        <title>${escapeHtml(getWorkspaceTitle())} PDF report</title>
+        <style>
+          @page { size: A4 landscape; margin: 10mm; }
+          * { box-sizing: border-box; }
+          body { margin: 0; color: #182536; font: 9.5px/1.38 Arial, sans-serif; background: white; }
+          h1 { margin: 0 0 4px; font-size: 22px; color: #102b46; }
+          h2 { margin: 18px 0 8px; padding-top: 8px; border-top: 2px solid #102b46; font-size: 15px; color: #102b46; break-after: avoid; }
+          h3 { margin: 12px 0 6px; font-size: 12px; color: #102b46; break-after: avoid; }
+          p { margin: 0 0 6px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 10px; page-break-inside: auto; }
+          th, td { border: 1px solid #ccd7e3; padding: 4px 5px; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+          th { background: #eef5fc; color: #42536a; text-align: left; }
+          tr { page-break-inside: avoid; break-inside: avoid; }
+          .cover { margin-bottom: 12px; }
+          .muted { color: #5f6f83; }
+          .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+          .plo-card { border: 1px solid #ccd7e3; border-radius: 8px; padding: 7px; margin-bottom: 6px; break-inside: avoid; }
+          .plo-card b { color: #102b46; }
+          .paper-print-block { break-inside: avoid; page-break-inside: avoid; }
+          .section { break-before: auto; }
+        </style>
+      </head>
+      <body>
+        <section class="cover">
+          <h1>${escapeHtml(state.meta.programme || "Curriculum Mapping Workspace")}</h1>
+          <p class="muted">${escapeHtml(getWorkspaceTitle())} · Printed ${escapeHtml(reportDate)}</p>
+          <table><tbody>
+            <tr><th>Department / school</th><td>${escapeHtml(state.meta.department || "")}</td><th>Version</th><td>${escapeHtml(state.meta.version || "")}</td></tr>
+            <tr><th>Workshop date</th><td>${escapeHtml(state.meta.workshopDate || "")}</td><th>Participants</th><td>${printableText(state.meta.participants || "")}</td></tr>
+          </tbody></table>
+        </section>
+
+        <h2>Programme Learning Outcomes</h2>
+        <div class="two-col">${state.plos.map((plo) => `<article class="plo-card"><b>${escapeHtml(plo.code)} · ${escapeHtml(plo.title)}</b><p>${printableText(plo.description)}</p></article>`).join("") || "<p>No PLOs entered.</p>"}</div>
+
+        <h2>Program Alignment Matrix</h2>
+        <table><thead><tr><th>Paper</th>${ploHead}<th>Discussion notes</th></tr></thead><tbody>${alignmentRows || `<tr><td colspan="${state.plos.length + 2}">No papers entered.</td></tr>`}</tbody></table>
+
+        <h2>Student Pathways And Programme Network</h2>
+        <table><thead><tr><th>Relationship type</th><th>From paper</th><th>To paper</th></tr></thead><tbody>${printableRelationshipRows()}</tbody></table>
+
+        <h2>Assessment Evidence Matrix</h2>
+        <table><thead><tr><th>Assessment item</th>${ploHead}</tr></thead><tbody>${evidenceRows}</tbody></table>
+
+        <h2>Assessment Items</h2>
+        <table><thead><tr><th>Paper</th><th>Item</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th></tr></thead><tbody>${assessmentRows}</tbody></table>
+
+        <h2>Paper Details</h2>
+        ${paperSections || "<p>No paper details entered.</p>"}
+
+        <h2>Decisions And Actions</h2>
+        <table><thead><tr><th>Diagnosis note</th><th>Decision / action</th><th>Status</th><th>Owner</th><th>Notes</th></tr></thead><tbody>${printableActionRows()}</tbody></table>
+
+        <h2>Review Comments</h2>
+        <table><thead><tr><th>Author</th><th>Target</th><th>Time</th><th>Comment</th></tr></thead><tbody>${commentsRows}</tbody></table>
+      </body>
+      </html>`;
+  }
+
+  async function preparePrint() {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      alert("Unable to open the printable report. Please allow pop-ups for this site, then try Print / PDF again.");
+      return;
+    }
+    printWindow.document.write("<!doctype html><title>Preparing PDF report</title><p>Preparing printable curriculum mapping report...</p>");
+    try {
+      if (cloud.enabled) await fetchReviewComments(true);
+    } catch (error) {
+      console.warn("Unable to include review comments in PDF report", error);
+    }
+    printWindow.document.open();
+    printWindow.document.write(printableReportHtml());
+    printWindow.document.close();
+    let printed = false;
+    const printReport = () => {
+      if (printed) return;
+      printed = true;
+      window.setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 250);
+    };
+    printWindow.onload = printReport;
+    window.setTimeout(printReport, 700);
   }
 
   function loadHistory() {
@@ -1856,7 +2403,7 @@
 
   function defaultSnapshotLabel() {
     const programme = state.meta.programme && state.meta.programme !== "Untitled Programme" ? state.meta.programme : "Workspace";
-    return `${programme} snapshot · ${formatSnapshotTimestamp()}`;
+    return `${programme} version · ${formatSnapshotTimestamp()}`;
   }
 
   function snapshotOptionLabel(item, index, total) {
@@ -1877,14 +2424,14 @@
   function saveSnapshot() {
     if (!canEditWorkspace()) return;
     openDialog({
-      title: "Save Version Snapshot",
+      title: "Save Version",
       fields: [
-        { name: "label", label: "Snapshot label", value: defaultSnapshotLabel(), required: true },
+        { name: "label", label: "Version label", value: defaultSnapshotLabel(), required: true },
         { name: "notes", label: "Version notes", value: "", type: "textarea" }
       ],
       async onSave(values) {
         try {
-          await flushPendingWorkspaceSave("Preparing version snapshot...");
+          await flushPendingWorkspaceSave("Preparing version...");
           const snapshotData = normaliseState(clone(state));
           if (cloud.enabled && cloud.canEdit && cloud.client) {
             const { error } = await cloud.client.rpc("create_curriculum_workspace_version", {
@@ -1896,7 +2443,7 @@
             });
             if (error) throw error;
             const versions = await fetchCloudVersions();
-            toast(`Cloud version snapshot saved (${versions.length} total)`);
+            toast(`Cloud version saved (${versions.length} total)`);
             return;
           }
           const history = loadHistory();
@@ -1909,9 +2456,9 @@
           });
           const savedHistory = history.slice(0, 20);
           localStorage.setItem(HISTORY_KEY, JSON.stringify(savedHistory));
-          toast(`Version snapshot saved (${savedHistory.length} total)`);
+          toast(`Version saved (${savedHistory.length} total)`);
         } catch (error) {
-          alert(`Unable to save a version snapshot: ${error.message}`);
+          alert(`Unable to save a version: ${error.message}`);
         }
       }
     });
@@ -1924,7 +2471,7 @@
     }
     const history = loadHistory();
     if (!history.length) {
-      toast("No saved snapshots yet");
+      toast("No saved versions yet");
       return;
     }
     openDialog({
@@ -1932,7 +2479,7 @@
       fields: [
         {
           name: "snapshotId",
-          label: "Saved snapshot",
+          label: "Saved version",
           value: history[0].id,
           type: "select",
           options: history.map((item, index) => ({
@@ -1943,7 +2490,7 @@
       ],
       onSave(values) {
         const snapshot = history.find((item) => item.id === values.snapshotId);
-        if (!snapshot || !confirm(`Restore "${snapshot.label}"? Current unsnapshotted changes will be replaced.`)) return;
+        if (!snapshot || !confirm(`Restore "${snapshot.label}"? Current unsaved changes will be replaced.`)) return;
         state = normaliseState(clone(snapshot.data));
         selectedPaperId = state.papers[0]?.id || null;
         renderAll();
@@ -1957,7 +2504,7 @@
     try {
       const history = await fetchCloudVersions();
       if (!history.length) {
-        toast("No cloud snapshots yet");
+        toast("No cloud versions yet");
         return;
       }
       openDialog({
@@ -1965,7 +2512,7 @@
         fields: [
           {
             name: "snapshotId",
-            label: "Saved snapshot",
+            label: "Saved version",
             value: history[0].id,
             type: "select",
             options: history.map((item, index) => ({
@@ -2042,6 +2589,7 @@
             cloud.editToken = data.editToken;
             cloud.viewToken = data.viewToken;
             cloud.lastUpdatedAt = data.updatedAt || "";
+            refreshSessionIdentity();
             const nextUrl = buildWorkspaceUrl(cloud.workspace, cloud.adminToken);
             window.history.replaceState(null, "", nextUrl);
             try {
@@ -2071,6 +2619,83 @@
         toast("Blank workspace created");
       }
     });
+  }
+
+  function paperLabel(paperId) {
+    const paperItem = state.papers.find((item) => item.id === paperId);
+    return paperItem ? `${paperItem.code} · ${paperItem.title}` : "Unknown paper";
+  }
+
+  function assessmentLabel(assessmentId) {
+    const item = state.assessments.find((assessmentItem) => assessmentItem.id === assessmentId);
+    if (!item) return "Unknown assessment";
+    return `${paperLabel(item.paperId)} · ${item.name}`;
+  }
+
+  function valueForElement(element) {
+    if (!element) return "";
+    if (element.isContentEditable || element.getAttribute("contenteditable") === "false") return element.textContent.trim();
+    return element.value ?? "";
+  }
+
+  function truncateForLog(value) {
+    const text = String(value || "").replace(/\s+/g, " ").trim();
+    return text.length > 180 ? `${text.slice(0, 177)}...` : text;
+  }
+
+  function editableTrackingTarget(target) {
+    return target.closest?.([
+      "[data-note-paper]",
+      "[data-paper-plo-link]",
+      "[data-paper-activity-link]",
+      "[data-paper-field]",
+      "[data-assessment-field]",
+      "[data-note-action-field]",
+      "[data-standalone-action-field]",
+      "[data-connection-field]"
+    ].join(","));
+  }
+
+  function fieldInfoForElement(element) {
+    if (!element) return null;
+    if (element.matches("[data-note-paper]")) {
+      const paperId = element.dataset.notePaper;
+      return { key: `program-note:${paperId}`, label: `Program note for ${paperLabel(paperId)}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-paper-plo-link]")) {
+      const plo = state.plos.find((item) => item.id === element.dataset.paperPloLink);
+      return { key: `paper-plo-link:${selectedPaperId}:${element.dataset.paperPloLink}`, label: `${paperLabel(selectedPaperId)} PLO/CLO link ${plo?.code || ""}`.trim(), value: valueForElement(element) };
+    }
+    if (element.matches("[data-paper-activity-link]")) {
+      const plo = state.plos.find((item) => item.id === element.dataset.paperActivityLink);
+      return { key: `paper-activity-link:${selectedPaperId}:${element.dataset.paperActivityLink}`, label: `${paperLabel(selectedPaperId)} learning activity link ${plo?.code || ""}`.trim(), value: valueForElement(element) };
+    }
+    if (element.matches("[data-paper-field]")) {
+      const field = element.dataset.paperField;
+      return { key: `paper-field:${selectedPaperId}:${field}`, label: `${paperLabel(selectedPaperId)} ${field}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-assessment-field]")) {
+      const row = element.closest("[data-assessment-row]");
+      const assessmentId = row?.dataset.assessmentRow || "unknown";
+      const field = element.dataset.assessmentField;
+      return { key: `assessment-field:${assessmentId}:${field}`, label: `${assessmentLabel(assessmentId)} ${field}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-note-action-field]")) {
+      const row = element.closest("[data-diagnosis-source]");
+      const field = element.dataset.noteActionField;
+      return { key: `diagnosis-action:${row?.dataset.diagnosisSource || "unknown"}:${field}`, label: `Action for ${row?.dataset.diagnosisTitle || "diagnosis"} ${field}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-standalone-action-field]")) {
+      const row = element.closest("[data-standalone-action]");
+      const field = element.dataset.standaloneActionField;
+      return { key: `standalone-action:${row?.dataset.standaloneAction || "unknown"}:${field}`, label: `Standalone action ${field}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-connection-field]")) {
+      const row = element.closest("[data-connection-row]");
+      const field = element.dataset.connectionField;
+      return { key: `relationship:${row?.dataset.connectionRow || "unknown"}:${field}`, label: `Network relationship ${field}`, value: valueForElement(element) };
+    }
+    return null;
   }
 
   function setCanvasMode(mode) {
@@ -2112,6 +2737,7 @@
           markConnectionDeleted(connectionSource, paperId, "both");
           renderPaperEditor();
           drawConnections();
+          void logActivity("Removed relationship", `${paperLabel(connectionSource)} ↔ ${paperLabel(paperId)}`, { removed: removedCount });
           commitConnectionChange(`${removedCount} relationship line${removedCount === 1 ? "" : "s"} removed and saved`);
         } else {
           toast("No line found between those papers");
@@ -2119,6 +2745,7 @@
       } else {
         upsertConnection(connectionSource, paperId, canvasMode);
         drawConnections();
+        void logActivity("Added relationship", `${paperLabel(connectionSource)} → ${paperLabel(paperId)}`, { type: canvasMode });
         commitConnectionChange("Relationship line saved");
       }
     }
@@ -2170,12 +2797,15 @@
       const paperId = alignmentCell.dataset.paperId;
       const ploId = alignmentCell.dataset.ploId;
       const current = state.alignments[paperId]?.[ploId] || "";
+      const plo = state.plos.find((item) => item.id === ploId);
+      markDiscreteEditPresence({ key: `alignment-cell:${paperId}:${ploId}`, label: `${paperLabel(paperId)} × ${plo?.code || "PLO"}` });
       const next = sequence[(sequence.indexOf(current) + 1) % sequence.length];
       state.alignments[paperId] ||= {};
       state.alignments[paperId][ploId] = next;
       alignmentCell.dataset.value = next;
       alignmentCell.querySelector(".alignment-mark").textContent = next || "–";
       renderPaperEditor();
+      void logActivity("Updated PLO alignment", `${paperLabel(paperId)} × ${plo?.code || "PLO"}`, { before: current || "blank", after: next || "blank" });
       return scheduleSave();
     }
 
@@ -2201,6 +2831,7 @@
       item.roles = item.roles.includes(role) ? item.roles.filter((value) => value !== role) : [...item.roles, role];
       roleChip.classList.toggle("selected");
       renderCanvas();
+      void logActivity("Updated paper role", paperLabel(item.id), { role, selected: item.roles.includes(role) });
       return scheduleSave();
     }
 
@@ -2232,6 +2863,7 @@
       state.connections = state.connections.filter((connection) => connection.id !== item.id);
       renderPaperEditor();
       renderCanvas();
+      void logActivity("Removed relationship", `${paperLabel(item.from)} → ${paperLabel(item.to)}`, { type: item.type });
       return commitConnectionChange("Relationship removed and saved");
     }
 
@@ -2245,6 +2877,7 @@
       upsertConnection(item.to, item.from, item.type);
       renderPaperEditor();
       renderCanvas();
+      void logActivity("Reversed relationship", `${paperLabel(item.from)} ↔ ${paperLabel(item.to)}`, { type: item.type });
       return commitConnectionChange("Relationship direction reversed and saved");
     }
 
@@ -2255,9 +2888,12 @@
       if (!item) return;
       const sequence = ["", "P", "D"];
       const current = item.evidence?.[evidenceCell.dataset.ploId] || "";
+      const plo = state.plos.find((ploItem) => ploItem.id === evidenceCell.dataset.ploId);
+      markDiscreteEditPresence({ key: `evidence-cell:${item.id}:${evidenceCell.dataset.ploId}`, label: `${assessmentLabel(item.id)} × ${plo?.code || "PLO"}` });
       const next = sequence[(sequence.indexOf(current) + 1) % sequence.length];
       item.evidence ||= {};
       item.evidence[evidenceCell.dataset.ploId] = next;
+      void logActivity("Updated assessment evidence", `${assessmentLabel(item.id)} × ${plo?.code || "PLO"}`, { before: current || "blank", after: next || "blank" });
       renderPaperEditor(); renderAssessments(); return scheduleSave();
     }
 
@@ -2271,6 +2907,21 @@
   document.addEventListener("pointerdown", (event) => {
     const card = event.target.closest(".paper-card");
     if (card && canEditWorkspace(false)) startDrag(card, event);
+  });
+
+  document.addEventListener("focusin", (event) => {
+    const target = editableTrackingTarget(event.target);
+    if (!target || !canEditWorkspace(false)) return;
+    const field = fieldInfoForElement(target);
+    if (!field) return;
+    target.dataset.presenceKey = field.key;
+    focusedEdit = {
+      element: target,
+      key: field.key,
+      label: field.label,
+      value: field.value
+    };
+    void setPresence(field);
   });
 
   document.addEventListener("input", (event) => {
@@ -2367,6 +3018,7 @@
       upsertConnection(from, to, type);
       renderPaperEditor();
       renderCanvas();
+      void logActivity("Updated relationship", `${paperLabel(from)} → ${paperLabel(to)}`, { type });
       commitConnectionChange("Relationship updated and saved");
       return;
     }
@@ -2385,6 +3037,20 @@
   });
 
   document.addEventListener("focusout", (event) => {
+    const trackedTarget = editableTrackingTarget(event.target);
+    if (trackedTarget && focusedEdit?.element === trackedTarget) {
+      const nextValue = valueForElement(trackedTarget);
+      const beforeValue = focusedEdit.value;
+      const fieldLabel = focusedEdit.label;
+      focusedEdit = null;
+      void clearPresence();
+      if (nextValue !== beforeValue) {
+        void logActivity("Updated field", fieldLabel, {
+          before: truncateForLog(beforeValue),
+          after: truncateForLog(nextValue)
+        });
+      }
+    }
     if (event.target.closest(".editable-cell[data-assessment-field]")) {
       deferRender("paperEditor", "assessments");
     }
@@ -2416,6 +3082,7 @@
       markConnectionDeleted(item.from, item.to);
       state.connections = state.connections.filter((connection) => connection.id !== item.id);
       drawConnections();
+      void logActivity("Removed relationship", `${paperLabel(item.from)} → ${paperLabel(item.to)}`, { type: item.type });
       commitConnectionChange("Connection removed and saved");
     }
   });
@@ -2457,6 +3124,21 @@
   byId("copy-view-link-button").addEventListener("click", () => {
     copyText(buildWorkspaceUrl(cloud.workspace, cloud.viewToken || cloud.token), "view link");
   });
+  byId("session-name-button").addEventListener("click", () => {
+    openDialog({
+      eyebrow: "Identity",
+      title: "Your name for this workspace",
+      fields: [
+        { name: "name", label: "Name shown in comments and admin log", value: sessionName || "", required: true }
+      ],
+      onSave(values) {
+        setSessionName(values.name);
+        toast("Name saved for this browser");
+      }
+    });
+  });
+  byId("comments-button").addEventListener("click", openComments);
+  byId("activity-log-button").addEventListener("click", openActivityLog);
   byId("save-snapshot-button").addEventListener("click", saveSnapshot);
   byId("versions-button").addEventListener("click", openVersions);
   byId("new-template-button").addEventListener("click", newTemplate);
@@ -2476,6 +3158,9 @@
   window.addEventListener("afterprint", () => {
     document.body.classList.remove("print-mode");
     requestAnimationFrame(drawConnections);
+  });
+  window.addEventListener("beforeunload", () => {
+    void clearPresence();
   });
 
   renderAll();
