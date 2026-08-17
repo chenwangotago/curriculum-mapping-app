@@ -181,6 +181,7 @@
     return {
       id, code, title, level, x, y, roles,
       status: "Draft",
+      description: "",
       concepts: "Key concepts and knowledge domains.",
       learningOutcomes: "Explain selected concepts.\nAnalyse relevant texts or evidence.\nCommunicate a supported claim.",
       learningActivities: "Lectures and guided workshops.\nPractice activities with feedback.\nPeer discussion.",
@@ -451,6 +452,7 @@
       ...item,
       level: Number(item.level) || 100,
       roles: Array.isArray(item.roles) ? item.roles : [],
+      description: item.description || "",
       ploLinks: item.ploLinks || {},
       activityLinks: item.activityLinks || {},
       diagnosisNote: item.diagnosisNote || "",
@@ -1628,6 +1630,11 @@
       </div>
       <div class="paper-detail-stack">
         <section class="paper-section">
+          <h3>Paper Description</h3>
+          <p class="section-help">Add the official or locally agreed paper description used for programme approval, handbook, or course design documentation.</p>
+          <textarea class="large-textarea" data-paper-field="description">${escapeHtml(item.description || "")}</textarea>
+        </section>
+        <section class="paper-section">
           <h3>Course Learning Outcomes (CLOs)</h3>
           <p class="section-help">Enter one CLO per line. The app identifies them as CLO1, CLO2, CLO3 so they can be referenced in the alignment map.</p>
           <textarea class="large-textarea" data-paper-field="learningOutcomes">${escapeHtml(item.learningOutcomes)}</textarea>
@@ -2281,6 +2288,7 @@
             <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
             <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code} ${plo.level}`).join("; ") || "None mapped")}</td></tr>
             <tr><th>Network relationships</th><td colspan="3">${printableText(relationships || "No network relationships mapped.")}</td></tr>
+            <tr><th>Paper description</th><td colspan="3">${printableText(paperItem.description || "")}</td></tr>
             <tr><th>Course Learning Outcomes</th><td colspan="3">${printableText(paperItem.learningOutcomes || "")}</td></tr>
             <tr><th>Learning Activities</th><td colspan="3">${printableText(paperItem.learningActivities || "")}</td></tr>
             <tr><th>Key concepts</th><td colspan="3">${printableText(paperItem.concepts || "")}</td></tr>
