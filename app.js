@@ -557,6 +557,9 @@
   }
 
   function loadState() {
+    if (cloud.workspace && cloud.token) {
+      return blankWorkspaceState("Loading cloud workspace...", clone(DEFAULT_WORDING));
+    }
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       return saved ? normaliseState(JSON.parse(saved)) : clone(sampleData);
