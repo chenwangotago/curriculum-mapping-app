@@ -187,6 +187,7 @@
       { id: "act3", title: "Confirm capstone PLO evidence", decision: "Use the capstone project and reflection as direct PLO evidence.", owner: "HUMS399 team", due: "2026-07-15", status: "Completed", notes: "Mapped to project and reflection." }
     ],
     staffNotes: {},
+    staffProfiles: {},
     wording: clone(DEFAULT_WORDING)
   };
 
@@ -303,6 +304,21 @@
     if (!text) return "";
     const points = Number(text);
     return Number.isFinite(points) && points > 0 ? points : "";
+  }
+
+  function normaliseStaffProfile(value = {}) {
+    const profile = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return {
+      researchInterests: String(profile.researchInterests || ""),
+      teachingApproaches: String(profile.teachingApproaches || ""),
+      assessmentExperience: String(profile.assessmentExperience || ""),
+      studentCohorts: String(profile.studentCohorts || "")
+    };
+  }
+
+  function normaliseStaffProfiles(value = {}) {
+    const profiles = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(Object.entries(profiles).map(([name, profile]) => [name, normaliseStaffProfile(profile)]));
   }
 
   function levelGroupingMode() {
@@ -597,6 +613,7 @@
       assessments,
       actions,
       staffNotes: input.staffNotes && typeof input.staffNotes === "object" && !Array.isArray(input.staffNotes) ? input.staffNotes : {},
+      staffProfiles: normaliseStaffProfiles(input.staffProfiles),
       wording: normaliseWording(input.wording)
     };
   }
@@ -696,6 +713,7 @@
       assessments: [],
       actions: [],
       staffNotes: {},
+      staffProfiles: {},
       wording: normaliseWording(wording)
     });
   }
@@ -1991,6 +2009,7 @@
       const learningActivities = uniqueTextList(summary.learningActivities, 5);
       const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 5);
       const note = state.staffNotes?.[summary.name] || "";
+      const profile = normaliseStaffProfile(state.staffProfiles?.[summary.name]);
       return `<article class="staff-card">
         <div class="staff-card-heading">
           <div><h3>${escapeHtml(summary.name)}</h3><p>${summary.papers.length} paper${summary.papers.length === 1 ? "" : "s"} · ${summary.points || 0} attached points</p></div>
@@ -2018,6 +2037,12 @@
           <div><b>Programme roles / expertise signals</b><p>${escapeHtml([...summary.roles].join("; ") || "No paper role selected yet.")}</p></div>
           <div><b>Learning activity / pedagogy signals</b><p>${escapeHtml(learningActivities.join("; ") || "No learning activities entered yet.")}</p></div>
           <div><b>Assessment patterns</b><p>${escapeHtml(assessmentPatterns.join("; ") || "No assessment mode entered yet.")}</p></div>
+        </div>
+        <div class="staff-profile-grid">
+          <label><span>Research areas / interests</span><textarea data-staff-profile-field="researchInterests" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. public health policy; infectious disease; health equity">${escapeHtml(profile.researchInterests)}</textarea></label>
+          <label><span>Teaching approaches / strengths</span><textarea data-staff-profile-field="teachingApproaches" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. case-based teaching; problem-based learning; community-engaged learning">${escapeHtml(profile.teachingApproaches)}</textarea></label>
+          <label><span>Assessment formats / experience</span><textarea data-staff-profile-field="assessmentExperience" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. ICA; portfolio; oral presentation; case study; exam">${escapeHtml(profile.assessmentExperience)}</textarea></label>
+          <label><span>Student cohorts / supervision</span><textarea data-staff-profile-field="studentCohorts" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. first year; senior students; postgraduate students; research supervision">${escapeHtml(profile.studentCohorts)}</textarea></label>
         </div>
         <label class="staff-note"><span>Workload / expertise note for Actions</span><textarea data-staff-note="${escapeHtml(summary.name)}" placeholder="Add workload, capacity, expertise, or succession-risk notes. These carry to Actions.">${escapeHtml(note)}</textarea></label>
       </article>`;
@@ -2542,6 +2567,14 @@
 
   function printableStaffRows() {
     const rows = staffWorkloadSummaries().map((summary) => {
+      const profile = normaliseStaffProfile(state.staffProfiles?.[summary.name]);
+      const profileText = [
+        profile.researchInterests ? `Research areas / interests: ${profile.researchInterests}` : "",
+        profile.teachingApproaches ? `Teaching approaches / strengths: ${profile.teachingApproaches}` : "",
+        profile.assessmentExperience ? `Assessment formats / experience: ${profile.assessmentExperience}` : "",
+        profile.studentCohorts ? `Student cohorts / supervision: ${profile.studentCohorts}` : "",
+        state.staffNotes?.[summary.name] ? `Workload / expertise note: ${state.staffNotes[summary.name]}` : ""
+      ].filter(Boolean).join("\n");
       const papers = summary.papers
         .slice()
         .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
@@ -2550,7 +2583,7 @@
       const learningActivities = uniqueTextList(summary.learningActivities, 4).join("; ");
       const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 4).join("; ");
       return `<tr>
-        <td><b>${escapeHtml(summary.name)}</b><br>${printableText(state.staffNotes?.[summary.name] || "")}</td>
+        <td><b>${escapeHtml(summary.name)}</b><br>${printableText(profileText || "")}</td>
         <td>${printableText(papers || "No papers")}</td>
         <td>${escapeHtml(summary.points || 0)}</td>
         <td>${escapeHtml([...summary.levels].join("; ") || "Not set")}</td>
@@ -3015,6 +3048,7 @@
       "[data-paper-activity-link]",
       "[data-paper-field]",
       "[data-assessment-field]",
+      "[data-staff-profile-field]",
       "[data-staff-note]",
       "[data-note-action-field]",
       "[data-standalone-action-field]",
@@ -3049,6 +3083,11 @@
     if (element.matches("[data-staff-note]")) {
       const staffName = element.dataset.staffNote || "Unknown staff";
       return { key: `staff-note:${staffName}`, label: `Staff workload note for ${staffName}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-staff-profile-field]")) {
+      const staffName = element.dataset.staffName || "Unknown staff";
+      const field = element.dataset.staffProfileField;
+      return { key: `staff-profile:${staffName}:${field}`, label: `Staff profile for ${staffName} ${field}`, value: valueForElement(element) };
     }
     if (element.matches("[data-note-action-field]")) {
       const row = element.closest("[data-diagnosis-source]");
@@ -3349,6 +3388,17 @@
       state.staffNotes ||= {};
       state.staffNotes[staffNote.dataset.staffNote] = staffNote.value;
       deferRender("actions");
+      return scheduleSave();
+    }
+
+    const staffProfileField = event.target.closest("[data-staff-profile-field]");
+    if (staffProfileField) {
+      if (!canEditWorkspace(false)) return;
+      const staffName = staffProfileField.dataset.staffName;
+      const field = staffProfileField.dataset.staffProfileField;
+      state.staffProfiles ||= {};
+      state.staffProfiles[staffName] = normaliseStaffProfile(state.staffProfiles[staffName]);
+      state.staffProfiles[staffName][field] = staffProfileField.value;
       return scheduleSave();
     }
 
