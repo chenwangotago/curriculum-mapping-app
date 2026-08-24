@@ -599,6 +599,18 @@ tr:last-child td { border-bottom: 0; }
   box-shadow: 0 8px 20px rgba(168,85,130,.16);
 }
 
+.paper-card.distance {
+  border-color: #93c5fd;
+  background: linear-gradient(90deg, #eff6ff 0, #f8fbff 54%, #dbeafe 100%);
+  box-shadow: 0 8px 20px rgba(37,99,216,.16);
+}
+
+.paper-card.compulsory.distance {
+  border-color: #c4b5fd;
+  background: linear-gradient(90deg, #fce7f3 0, #fff7fb 18%, #eff6ff 58%, #dbeafe 100%);
+  box-shadow: 0 8px 20px rgba(105,85,190,.17);
+}
+
 .paper-card.compulsory::before {
   content: "";
   position: absolute;
