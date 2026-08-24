@@ -6,7 +6,7 @@
   const SESSION_NAME_KEY = "curriculum-mapping-session-name-v1";
   const CLIENT_ID_KEY = "curriculum-mapping-client-id-v1";
   const TEACHING_WEEKS = 12;
-  const NZQF_LEVEL_OPTIONS = [5, 6, 7, 8, 9, 10];
+  const NZQCF_LEVEL_OPTIONS = [5, 6, 7, 8, 9, 10];
   const PAPER_REQUIREMENTS = ["Elective", "Compulsory"];
   const CONFIG = window.CURRICULUM_MAPPING_CONFIG || {};
   const URL_PARAMS = new URLSearchParams(window.location.search);
@@ -186,6 +186,7 @@
       id, code, title, level, x, y, roles,
       requirement: "Elective",
       nzqfLevel: "",
+      points: "",
       status: "Draft",
       description: "",
       concepts: "Key concepts and knowledge domains.",
@@ -273,6 +274,13 @@
     if (!text) return "";
     const level = Number(text);
     return Number.isFinite(level) && level > 0 ? level : "";
+  }
+
+  function normalisePaperPoints(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const points = Number(text);
+    return Number.isFinite(points) && points > 0 ? points : "";
   }
 
   function levelGroupingMode() {
@@ -428,14 +436,14 @@
     const hasUnassigned = state.papers.some((paperItem) => !normaliseNzqfLevel(paperItem.nzqfLevel));
     const source = levels.length ? levels : [7, 8, 9];
     const bands = source.map((level) => ({
-      label: `NZQF Level ${level}`,
+      label: `NZQCF Level ${level}`,
       description: "Qualification level",
       min: level,
       max: level,
       defaultLevel: level
     }));
     return hasUnassigned
-      ? [{ label: "NZQF not set", description: "Confirm in Papers tab", min: 0, max: 0, defaultLevel: 0 }, ...bands]
+      ? [{ label: "NZQCF not set", description: "Confirm in Papers tab", min: 0, max: 0, defaultLevel: 0 }, ...bands]
       : bands;
   }
 
@@ -454,20 +462,24 @@
 
   function paperCanvasLevelLabel(paperItem) {
     if (isNzqfGrouping()) {
-      return paperItem.nzqfLevel ? `NZQF ${paperItem.nzqfLevel}` : "NZQF not set";
+      return paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set";
     }
-    return bandLabelForLevel(paperItem.level);
+    return `Otago ${bandLabelForLevel(paperItem.level)}`;
   }
 
   function paperMetaLabel(paperItem) {
-    const codeLevel = bandLabelForLevel(paperItem.level);
-    const nzqf = paperItem.nzqfLevel ? `NZQF ${paperItem.nzqfLevel}` : "NZQF not set";
-    return `${codeLevel} · ${nzqf}`;
+    const codeLevel = `Otago ${bandLabelForLevel(paperItem.level)}`;
+    const nzqf = paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set";
+    return `${codeLevel} · ${nzqf} · ${paperPointsLabel(paperItem)}`;
+  }
+
+  function paperPointsLabel(paperItem) {
+    return paperItem.points ? `${paperItem.points} points` : "Points not set";
   }
 
   function nzqfLevelOptions() {
     return [...new Set([
-      ...NZQF_LEVEL_OPTIONS,
+      ...NZQCF_LEVEL_OPTIONS,
       ...state.papers.map((paperItem) => normaliseNzqfLevel(paperItem.nzqfLevel)).filter(Boolean)
     ])].sort((a, b) => a - b);
   }
@@ -524,6 +536,7 @@
       level: Number(item.level) || 100,
       nzqfLevel: normaliseNzqfLevel(item.nzqfLevel),
       requirement: normaliseRequirement(item.requirement),
+      points: normalisePaperPoints(item.points),
       roles: Array.isArray(item.roles) ? item.roles : [],
       description: item.description || "",
       ploLinks: item.ploLinks || {},
@@ -1558,6 +1571,7 @@
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
           ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
+          ${paperItem.points ? `<em class="points-tag">${escapeHtml(`${paperItem.points} pts`)}</em>` : ""}
           ${(paperItem.roles || []).slice(0, 2).map((role) => `<em>${escapeHtml(role.split(" / ")[0])}</em>`).join("")}
         </div>
       </article>
@@ -1695,12 +1709,13 @@
       <div class="field-grid">
         <label class="field"><span>Paper code</span><input data-paper-field="code" value="${escapeHtml(item.code)}"></label>
         <label class="field"><span>Paper title</span><input data-paper-field="title" value="${escapeHtml(item.title)}"></label>
-        <label class="field"><span>Paper code level / band</span><select data-paper-field="level">
+        <label class="field"><span>Points</span><input type="number" min="1" step="1" data-paper-field="points" value="${escapeHtml(item.points || "")}" placeholder="e.g. 15, 18, 30, 60"></label>
+        <label class="field"><span>Otago paper code level</span><select data-paper-field="level">
           ${paperLevelOptions().map((level) => `<option ${item.level === level ? "selected" : ""}>${level}</option>`).join("")}
         </select></label>
-        <label class="field"><span>NZQF level</span><select data-paper-field="nzqfLevel">
+        <label class="field"><span>NZQCF level</span><select data-paper-field="nzqfLevel">
           <option value="" ${item.nzqfLevel ? "" : "selected"}>Not set</option>
-          ${nzqfLevelOptions().map((level) => `<option value="${level}" ${item.nzqfLevel === level ? "selected" : ""}>NZQF Level ${level}</option>`).join("")}
+          ${nzqfLevelOptions().map((level) => `<option value="${level}" ${item.nzqfLevel === level ? "selected" : ""}>NZQCF Level ${level}</option>`).join("")}
         </select></label>
         <label class="field"><span>Programme requirement</span><select data-paper-field="requirement">
           ${PAPER_REQUIREMENTS.map((requirement) => `<option ${item.requirement === requirement ? "selected" : ""}>${requirement}</option>`).join("")}
@@ -2049,8 +2064,9 @@
       fields: [
         { name: "code", label: "Paper code", value: "", required: true },
         { name: "title", label: "Paper title", value: "", required: true },
-        { name: "level", label: "Paper code level / band", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) },
-        { name: "nzqfLevel", label: "NZQF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQF Level ${level}` }))] },
+        { name: "points", label: "Points", value: "", type: "number" },
+        { name: "level", label: "Otago paper code level", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) },
+        { name: "nzqfLevel", label: "NZQCF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQCF Level ${level}` }))] },
         { name: "requirement", label: "Programme requirement", value: "Elective", type: "select", options: PAPER_REQUIREMENTS }
       ],
       onSave(values) {
@@ -2062,6 +2078,7 @@
         const item = paper(id, values.code, values.title, level, 70 + column * columnWidth, 100 + (state.papers.length % 3) * 190, []);
         item.nzqfLevel = normaliseNzqfLevel(values.nzqfLevel);
         item.requirement = normaliseRequirement(values.requirement);
+        item.points = normalisePaperPoints(values.points);
         state.papers.push(item);
         state.alignments[id] = Object.fromEntries(state.plos.map((plo) => [plo.id, ""]));
         selectedPaperId = id;
@@ -2374,8 +2391,9 @@
         <h3>${escapeHtml(paperItem.code)} · ${escapeHtml(paperItem.title)}</h3>
         <table>
           <tbody>
-            <tr><th>Paper code level</th><td>${escapeHtml(paperItem.level)}</td><th>NZQF level</th><td>${escapeHtml(paperItem.nzqfLevel || "Not set")}</td></tr>
-            <tr><th>Requirement</th><td>${escapeHtml(paperItem.requirement || "Elective")}</td><th>Review status</th><td>${escapeHtml(paperItem.status || "")}</td></tr>
+            <tr><th>Otago paper code level</th><td>${escapeHtml(paperItem.level)}</td><th>NZQCF level</th><td>${escapeHtml(paperItem.nzqfLevel || "Not set")}</td></tr>
+            <tr><th>Points</th><td>${escapeHtml(paperItem.points || "Not set")}</td><th>Requirement</th><td>${escapeHtml(paperItem.requirement || "Elective")}</td></tr>
+            <tr><th>Review status</th><td colspan="3">${escapeHtml(paperItem.status || "")}</td></tr>
             <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
             <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code} ${plo.level}`).join("; ") || "None mapped")}</td></tr>
             <tr><th>Network relationships</th><td colspan="3">${printableText(relationships || "No network relationships mapped.")}</td></tr>
@@ -2748,13 +2766,15 @@
       nextValue = normaliseNzqfLevel(paperField.value);
     } else if (field === "requirement") {
       nextValue = normaliseRequirement(paperField.value);
+    } else if (field === "points") {
+      nextValue = normalisePaperPoints(paperField.value);
     } else {
       nextValue = paperField.value;
     }
     if (item[field] === nextValue) return false;
     item[field] = nextValue;
-    if (["code", "title", "status", "requirement", "nzqfLevel", "level"].includes(field)) deferRender("paperList");
-    if (["code", "title", "level", "nzqfLevel", "requirement"].includes(field)) {
+    if (["code", "title", "status", "requirement", "nzqfLevel", "level", "points"].includes(field)) deferRender("paperList");
+    if (["code", "title", "level", "nzqfLevel", "requirement", "points"].includes(field)) {
       deferRender("mapping", "canvas", "assessments");
     }
     if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
@@ -3122,7 +3142,7 @@
       if (!canEditWorkspace()) return;
       state.meta.levelGroupingMode = levelGrouping.value === "nzqf" ? "nzqf" : "paperCode";
       renderCanvas();
-      void logActivity("Changed board grouping", state.meta.levelGroupingMode === "nzqf" ? "NZQF level" : "Paper code level");
+      void logActivity("Changed board grouping", state.meta.levelGroupingMode === "nzqf" ? "NZQCF level" : "Otago paper code level");
       return scheduleSave();
     }
 
