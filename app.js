@@ -44,7 +44,7 @@
       programme: "1. Program",
       assessment: "2. Assessments",
       paper: "3. Papers",
-      staff: "4. Staff / Workload",
+      staff: "4. Staff",
       actions: "5. Actions"
     },
     programme: {
@@ -109,10 +109,10 @@
       findPaper: "Find a paper"
     },
     staff: {
-      title: "Teaching Staff & Workload",
-      help: "Summarise who teaches which papers, how many paper points are attached, and where expertise or workload patterns may need discussion.",
-      summaryTitle: "Staff Workload Summary",
-      summaryHelp: "This is a planning view derived from paper information. It is not an official FTE workload calculation."
+      title: "Staff",
+      help: "Summarise who teaches which papers, how many paper points are attached, and where expertise patterns may need discussion.",
+      summaryTitle: "Staff Summary",
+      summaryHelp: "This is a planning view derived from paper information. It is not an official FTE calculation."
     },
     actions: {
       title: "Decisions & Actions",
@@ -440,6 +440,9 @@
     const base = clone(DEFAULT_WORDING);
     const wording = mergeObject(base, value);
     wording.tabs = mergeObject(base.tabs, value.tabs);
+    if (/staff/i.test(wording.tabs.staff || "") && /workload/i.test(wording.tabs.staff || "")) {
+      wording.tabs.staff = base.tabs.staff;
+    }
     if (!value.tabs?.staff && wording.tabs.actions === "4. Actions") wording.tabs.actions = base.tabs.actions;
     wording.programme = mergeObject(base.programme, value.programme);
     wording.programme.levelBands = normaliseLevelBands(value.programme?.levelBands);
@@ -448,6 +451,10 @@
     wording.assessment = mergeObject(base.assessment, value.assessment);
     wording.paper = mergeObject(base.paper, value.paper);
     wording.staff = mergeObject(base.staff, value.staff);
+    if (/teaching staff\s*&\s*workload/i.test(wording.staff.title || "")) wording.staff.title = base.staff.title;
+    if (/staff workload summary/i.test(wording.staff.summaryTitle || "")) wording.staff.summaryTitle = base.staff.summaryTitle;
+    if (/workload patterns/i.test(wording.staff.help || "")) wording.staff.help = base.staff.help;
+    if (/official FTE workload calculation/i.test(wording.staff.summaryHelp || "")) wording.staff.summaryHelp = base.staff.summaryHelp;
     wording.actions = mergeObject(base.actions, value.actions);
     return wording;
   }
@@ -1985,7 +1992,11 @@
         summary.assessmentPatterns.push(...paperAssessments(paperItem.id).map((item) => [item.mode, item.purpose].filter(Boolean).join(" / ")));
       });
     });
-    return [...summaries.values()].sort((a, b) => a.name.localeCompare(b.name));
+    return [...summaries.values()].sort((a, b) =>
+      b.papers.length - a.papers.length
+      || b.points - a.points
+      || a.name.localeCompare(b.name)
+    );
   }
 
   function renderStaffWorkload() {
@@ -2436,8 +2447,8 @@
         { name: "assessmentHelp", label: "Assessment page description", value: w.assessment.help, type: "textarea" },
         { name: "paperTitle", label: "Paper page title", value: w.paper.title },
         { name: "paperHelp", label: "Paper page description", value: w.paper.help, type: "textarea" },
-        { name: "staffTitle", label: "Staff / workload page title", value: w.staff.title },
-        { name: "staffHelp", label: "Staff / workload page description", value: w.staff.help, type: "textarea" },
+        { name: "staffTitle", label: "Staff page title", value: w.staff.title },
+        { name: "staffHelp", label: "Staff page description", value: w.staff.help, type: "textarea" },
         { name: "actionsTitle", label: "Actions page title", value: w.actions.title },
         { name: "actionsHelp", label: "Actions page description", value: w.actions.help, type: "textarea" }
       ],
@@ -2715,7 +2726,7 @@
         <h2>Paper Details</h2>
         ${paperSections || "<p>No paper details entered.</p>"}
 
-        <h2>Teaching Staff And Workload</h2>
+        <h2>Staff</h2>
         <p class="muted">Paper points are attached to named staff for planning discussion; they are not divided across co-teachers and are not an official FTE calculation.</p>
         <table><thead><tr><th>Staff</th><th>Papers</th><th>Attached points</th><th>Otago levels</th><th>NZQCF levels</th><th>Roles / expertise signals</th><th>Learning activity signals</th><th>Assessment patterns</th></tr></thead><tbody>${printableStaffRows()}</tbody></table>
 
