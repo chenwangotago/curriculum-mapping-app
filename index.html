@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=21">
+  <link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
   <header class="app-header">
@@ -105,6 +105,13 @@
               <button class="mode-button" data-mode="related">Related</button>
               <button class="mode-button danger-mode" data-mode="remove">Remove line</button>
             </div>
+            <label class="level-mode-label">
+              <span>Board grouping</span>
+              <select id="level-grouping-mode" data-level-grouping-mode>
+                <option value="paperCode">Paper code level</option>
+                <option value="nzqf">NZQF level</option>
+              </select>
+            </label>
             <span id="canvas-status">Drag papers freely. Patterns and journeys emerge from where the team places papers.</span>
           </div>
           <div class="pathway-canvas" id="pathway-canvas">
@@ -263,6 +270,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=23"></script>
+  <script src="app.js?v=24"></script>
 </body>
 </html>

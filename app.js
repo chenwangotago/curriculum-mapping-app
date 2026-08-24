@@ -6,6 +6,8 @@
   const SESSION_NAME_KEY = "curriculum-mapping-session-name-v1";
   const CLIENT_ID_KEY = "curriculum-mapping-client-id-v1";
   const TEACHING_WEEKS = 12;
+  const NZQF_LEVEL_OPTIONS = [5, 6, 7, 8, 9, 10];
+  const PAPER_REQUIREMENTS = ["Elective", "Compulsory"];
   const CONFIG = window.CURRICULUM_MAPPING_CONFIG || {};
   const URL_PARAMS = new URLSearchParams(window.location.search);
   const cloud = {
@@ -120,7 +122,8 @@
       department: "Te Kete Aronui",
       version: "Version 1",
       workshopDate: "2026-06-23",
-      participants: ""
+      participants: "",
+      levelGroupingMode: "paperCode"
     },
     plos: [
       { id: "plo1", code: "PLO1", title: "Disciplinary Knowledge", description: "Explain key concepts, debates, and knowledge traditions in the field." },
@@ -181,6 +184,8 @@
   function paper(id, code, title, level, x, y, roles) {
     return {
       id, code, title, level, x, y, roles,
+      requirement: "Elective",
+      nzqfLevel: "",
       status: "Draft",
       description: "",
       concepts: "Key concepts and knowledge domains.",
@@ -256,6 +261,26 @@
 
   function mergeObject(base, value) {
     return { ...base, ...(value && typeof value === "object" && !Array.isArray(value) ? value : {}) };
+  }
+
+  function normaliseRequirement(value) {
+    const text = String(value || "").trim().toLowerCase();
+    return text.startsWith("comp") || text === "required" || text === "mandatory" ? "Compulsory" : "Elective";
+  }
+
+  function normaliseNzqfLevel(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const level = Number(text);
+    return Number.isFinite(level) && level > 0 ? level : "";
+  }
+
+  function levelGroupingMode() {
+    return state.meta?.levelGroupingMode === "nzqf" ? "nzqf" : "paperCode";
+  }
+
+  function isNzqfGrouping() {
+    return levelGroupingMode() === "nzqf";
   }
 
   function normaliseLevelBands(value) {
@@ -395,6 +420,29 @@
     return getWording().programme.levelBands;
   }
 
+  function getNzqfBands() {
+    const levels = [...new Set(state.papers
+      .map((paperItem) => normaliseNzqfLevel(paperItem.nzqfLevel))
+      .filter(Boolean))]
+      .sort((a, b) => a - b);
+    const hasUnassigned = state.papers.some((paperItem) => !normaliseNzqfLevel(paperItem.nzqfLevel));
+    const source = levels.length ? levels : [7, 8, 9];
+    const bands = source.map((level) => ({
+      label: `NZQF Level ${level}`,
+      description: "Qualification level",
+      min: level,
+      max: level,
+      defaultLevel: level
+    }));
+    return hasUnassigned
+      ? [{ label: "NZQF not set", description: "Confirm in Papers tab", min: 0, max: 0, defaultLevel: 0 }, ...bands]
+      : bands;
+  }
+
+  function getCanvasBands() {
+    return isNzqfGrouping() ? getNzqfBands() : getLevelBands();
+  }
+
   function bandForLevel(level) {
     const value = Number(level) || 0;
     return getLevelBands().find((band) => value >= band.min && value <= band.max) || null;
@@ -402,6 +450,26 @@
 
   function bandLabelForLevel(level) {
     return bandForLevel(level)?.label || `${level}-level`;
+  }
+
+  function paperCanvasLevelLabel(paperItem) {
+    if (isNzqfGrouping()) {
+      return paperItem.nzqfLevel ? `NZQF ${paperItem.nzqfLevel}` : "NZQF not set";
+    }
+    return bandLabelForLevel(paperItem.level);
+  }
+
+  function paperMetaLabel(paperItem) {
+    const codeLevel = bandLabelForLevel(paperItem.level);
+    const nzqf = paperItem.nzqfLevel ? `NZQF ${paperItem.nzqfLevel}` : "NZQF not set";
+    return `${codeLevel} · ${nzqf}`;
+  }
+
+  function nzqfLevelOptions() {
+    return [...new Set([
+      ...NZQF_LEVEL_OPTIONS,
+      ...state.papers.map((paperItem) => normaliseNzqfLevel(paperItem.nzqfLevel)).filter(Boolean)
+    ])].sort((a, b) => a - b);
   }
 
   function paperLevelOptions() {
@@ -448,10 +516,14 @@
 
   function normaliseState(input) {
     const base = clone(sampleData);
+    const meta = { ...base.meta, ...(input.meta || {}) };
+    meta.levelGroupingMode = meta.levelGroupingMode === "nzqf" ? "nzqf" : "paperCode";
     const papers = (Array.isArray(input.papers) ? input.papers : base.papers).map((item) => ({
       ...paper(item.id, item.code, item.title, Number(item.level) || 100, Number(item.x) || 70, Number(item.y) || 100, Array.isArray(item.roles) ? item.roles : []),
       ...item,
       level: Number(item.level) || 100,
+      nzqfLevel: normaliseNzqfLevel(item.nzqfLevel),
+      requirement: normaliseRequirement(item.requirement),
       roles: Array.isArray(item.roles) ? item.roles : [],
       description: item.description || "",
       ploLinks: item.ploLinks || {},
@@ -476,7 +548,7 @@
     return {
       ...base,
       ...input,
-      meta: { ...base.meta, ...(input.meta || {}) },
+      meta,
       plos: Array.isArray(input.plos) ? input.plos : base.plos,
       papers,
       alignments: input.alignments || {},
@@ -1335,6 +1407,7 @@
       <span><i class="line required"></i>${escapeHtml(w.network.requiredKey)}</span>
       <span><i class="line recommended"></i>${escapeHtml(w.network.recommendedKey)}</span>
       <span><i class="line related"></i>${escapeHtml(w.network.relatedKey)}</span>
+      <span><i class="paper-key compulsory"></i>Compulsory paper</span>
       <span class="hint">${escapeHtml(w.network.hint)}</span>`;
   }
 
@@ -1369,6 +1442,7 @@
         return `<tr>
           <td class="paper-cell" data-open-paper="${paperItem.id}">
             <b>${escapeHtml(paperItem.code)}</b><span>${escapeHtml(paperItem.title)}</span>
+            <small class="paper-cell-meta">${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small>
           </td>
           ${cells}
           <td class="discussion-note" contenteditable="true" data-note-paper="${paperItem.id}">${escapeHtml(state.notes[paperItem.id] || "")}</td>
@@ -1466,7 +1540,9 @@
   }
 
   function renderCanvas() {
-    const bands = getLevelBands();
+    const bands = getCanvasBands();
+    const levelModeControl = byId("level-grouping-mode");
+    if (levelModeControl) levelModeControl.value = levelGroupingMode();
     const headings = byId("level-headings");
     headings.style.setProperty("--level-band-count", String(Math.max(1, bands.length)));
     headings.innerHTML = bands.map((band) => `
@@ -1475,12 +1551,13 @@
 
     const cards = byId("paper-cards");
     cards.innerHTML = state.papers.map((paperItem) => `
-      <article class="paper-card" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
+      <article class="paper-card ${paperItem.requirement === "Compulsory" ? "compulsory" : ""}" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
         style="left:${paperItem.x}px;top:${paperItem.y}px">
-        <small>${escapeHtml(bandLabelForLevel(paperItem.level))}</small>
+        <small>${escapeHtml(paperCanvasLevelLabel(paperItem))}</small>
         <b>${escapeHtml(paperItem.code)}</b>
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
+          ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
           ${(paperItem.roles || []).slice(0, 2).map((role) => `<em>${escapeHtml(role.split(" / ")[0])}</em>`).join("")}
         </div>
       </article>
@@ -1561,9 +1638,10 @@
       .filter((item) => !query || `${item.code} ${item.title}`.toLowerCase().includes(query))
       .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code));
     byId("paper-list").innerHTML = filtered.map((item) => `
-      <article class="paper-list-item ${item.id === selectedPaperId ? "active" : ""}" data-select-paper="${item.id}">
-        <b>${escapeHtml(item.code)} · ${escapeHtml(item.status || "Draft")}</b>
+      <article class="paper-list-item ${item.id === selectedPaperId ? "active" : ""} ${item.requirement === "Compulsory" ? "compulsory" : ""}" data-select-paper="${item.id}">
+        <b>${escapeHtml(item.code)} · ${escapeHtml(item.requirement || "Elective")}</b>
         <span>${escapeHtml(item.title)}</span>
+        <small>${escapeHtml(paperMetaLabel(item))}</small>
       </article>
     `).join("") || `<div class="empty-state compact">No matching papers.</div>`;
   }
@@ -1617,8 +1695,15 @@
       <div class="field-grid">
         <label class="field"><span>Paper code</span><input data-paper-field="code" value="${escapeHtml(item.code)}"></label>
         <label class="field"><span>Paper title</span><input data-paper-field="title" value="${escapeHtml(item.title)}"></label>
-        <label class="field"><span>Level</span><select data-paper-field="level">
+        <label class="field"><span>Paper code level / band</span><select data-paper-field="level">
           ${paperLevelOptions().map((level) => `<option ${item.level === level ? "selected" : ""}>${level}</option>`).join("")}
+        </select></label>
+        <label class="field"><span>NZQF level</span><select data-paper-field="nzqfLevel">
+          <option value="" ${item.nzqfLevel ? "" : "selected"}>Not set</option>
+          ${nzqfLevelOptions().map((level) => `<option value="${level}" ${item.nzqfLevel === level ? "selected" : ""}>NZQF Level ${level}</option>`).join("")}
+        </select></label>
+        <label class="field"><span>Programme requirement</span><select data-paper-field="requirement">
+          ${PAPER_REQUIREMENTS.map((requirement) => `<option ${item.requirement === requirement ? "selected" : ""}>${requirement}</option>`).join("")}
         </select></label>
         <label class="field"><span>Review status</span><select data-paper-field="status">
           ${["Draft","In discussion","Ready"].map((status) => `<option ${item.status === status ? "selected" : ""}>${status}</option>`).join("")}
@@ -1964,7 +2049,9 @@
       fields: [
         { name: "code", label: "Paper code", value: "", required: true },
         { name: "title", label: "Paper title", value: "", required: true },
-        { name: "level", label: "Level", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) }
+        { name: "level", label: "Paper code level / band", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) },
+        { name: "nzqfLevel", label: "NZQF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQF Level ${level}` }))] },
+        { name: "requirement", label: "Programme requirement", value: "Elective", type: "select", options: PAPER_REQUIREMENTS }
       ],
       onSave(values) {
         const id = uid("paper");
@@ -1973,6 +2060,8 @@
         const column = Math.max(0, bands.findIndex((band) => level >= band.min && level <= band.max));
         const columnWidth = Math.max(280, Math.floor(1360 / Math.max(1, bands.length)));
         const item = paper(id, values.code, values.title, level, 70 + column * columnWidth, 100 + (state.papers.length % 3) * 190, []);
+        item.nzqfLevel = normaliseNzqfLevel(values.nzqfLevel);
+        item.requirement = normaliseRequirement(values.requirement);
         state.papers.push(item);
         state.alignments[id] = Object.fromEntries(state.plos.map((plo) => [plo.id, ""]));
         selectedPaperId = id;
@@ -2249,7 +2338,7 @@
     const reportDate = formatSnapshotTimestamp();
     const ploHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
     const alignmentRows = sortedPapers.map((paperItem) => `<tr>
-      <td><b>${escapeHtml(paperItem.code)}</b><br>${escapeHtml(paperItem.title)}</td>
+      <td><b>${escapeHtml(paperItem.code)}</b><br>${escapeHtml(paperItem.title)}<br><small>${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small></td>
       ${state.plos.map((plo) => `<td>${escapeHtml(printableAlignmentValue(paperItem.id, plo.id))}</td>`).join("")}
       <td>${printableText(state.notes[paperItem.id] || "")}</td>
     </tr>`).join("");
@@ -2285,7 +2374,8 @@
         <h3>${escapeHtml(paperItem.code)} · ${escapeHtml(paperItem.title)}</h3>
         <table>
           <tbody>
-            <tr><th>Level</th><td>${escapeHtml(paperItem.level)}</td><th>Status</th><td>${escapeHtml(paperItem.status || "")}</td></tr>
+            <tr><th>Paper code level</th><td>${escapeHtml(paperItem.level)}</td><th>NZQF level</th><td>${escapeHtml(paperItem.nzqfLevel || "Not set")}</td></tr>
+            <tr><th>Requirement</th><td>${escapeHtml(paperItem.requirement || "Elective")}</td><th>Review status</th><td>${escapeHtml(paperItem.status || "")}</td></tr>
             <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
             <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code} ${plo.level}`).join("; ") || "None mapped")}</td></tr>
             <tr><th>Network relationships</th><td colspan="3">${printableText(relationships || "No network relationships mapped.")}</td></tr>
@@ -2647,6 +2737,30 @@
     return element.value ?? "";
   }
 
+  function applyPaperFieldValue(paperField) {
+    const item = state.papers.find((paperItem) => paperItem.id === selectedPaperId);
+    if (!item) return false;
+    const field = paperField.dataset.paperField;
+    let nextValue;
+    if (field === "level") {
+      nextValue = Number(paperField.value);
+    } else if (field === "nzqfLevel") {
+      nextValue = normaliseNzqfLevel(paperField.value);
+    } else if (field === "requirement") {
+      nextValue = normaliseRequirement(paperField.value);
+    } else {
+      nextValue = paperField.value;
+    }
+    if (item[field] === nextValue) return false;
+    item[field] = nextValue;
+    if (["code", "title", "status", "requirement", "nzqfLevel", "level"].includes(field)) deferRender("paperList");
+    if (["code", "title", "level", "nzqfLevel", "requirement"].includes(field)) {
+      deferRender("mapping", "canvas", "assessments");
+    }
+    if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
+    return true;
+  }
+
   function truncateForLog(value) {
     const text = String(value || "").replace(/\s+/g, " ").trim();
     return text.length > 180 ? `${text.slice(0, 177)}...` : text;
@@ -2965,16 +3079,7 @@
     const paperField = event.target.closest("[data-paper-field]");
     if (paperField) {
       if (!canEditWorkspace(false)) return;
-      const item = state.papers.find((paperItem) => paperItem.id === selectedPaperId);
-      if (!item) return;
-      const field = paperField.dataset.paperField;
-      item[field] = field === "level" ? Number(paperField.value) : paperField.value;
-      if (field === "code" || field === "title" || field === "status") deferRender("paperList");
-      if (field === "code" || field === "title" || field === "level") {
-        deferRender("mapping", "canvas", "assessments");
-      }
-      if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
-      return scheduleSave();
+      if (applyPaperFieldValue(paperField)) return scheduleSave();
     }
 
     const assessmentField = event.target.closest("[data-assessment-field]");
@@ -3012,6 +3117,15 @@
   });
 
   document.addEventListener("change", (event) => {
+    const levelGrouping = event.target.closest("[data-level-grouping-mode]");
+    if (levelGrouping) {
+      if (!canEditWorkspace()) return;
+      state.meta.levelGroupingMode = levelGrouping.value === "nzqf" ? "nzqf" : "paperCode";
+      renderCanvas();
+      void logActivity("Changed board grouping", state.meta.levelGroupingMode === "nzqf" ? "NZQF level" : "Paper code level");
+      return scheduleSave();
+    }
+
     const connectionField = event.target.closest("[data-connection-field]");
     if (connectionField) {
       if (!canEditWorkspace()) return;
@@ -3036,6 +3150,9 @@
       deferRender("paperEditor", "assessments");
     }
     const changedPaperField = event.target.closest("[data-paper-field]");
+    if (changedPaperField && changedPaperField.matches("select") && applyPaperFieldValue(changedPaperField)) {
+      scheduleSave();
+    }
     if (changedPaperField && ["learningOutcomes", "learningActivities"].includes(changedPaperField.dataset.paperField)) {
       deferRender("paperEditor");
     }
