@@ -1624,8 +1624,10 @@
     cards.innerHTML = state.papers.map((paperItem) => `
       <article class="paper-card ${paperItem.requirement === "Compulsory" ? "compulsory" : ""} ${isDistanceLearningPaper(paperItem) ? "distance" : ""}" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
         style="left:${paperItem.x}px;top:${paperItem.y}px">
-        <small>${escapeHtml(paperCanvasLevelLabel(paperItem))}</small>
-        <b>${escapeHtml(paperItem.code)}</b>
+        <div class="paper-card-head">
+          <b>${escapeHtml(paperItem.code)}</b>
+          <small>${escapeHtml(paperCanvasLevelLabel(paperItem))}</small>
+        </div>
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
           ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
