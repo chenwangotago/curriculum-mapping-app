@@ -608,6 +608,15 @@ tr:last-child td { border-bottom: 0; }
   background: #db2777;
 }
 
+.paper-card.distance::after {
+  content: "";
+  position: absolute;
+  inset: 9px 7px 9px auto;
+  width: 4px;
+  border-radius: 999px;
+  background: #2563d8;
+}
+
 .paper-card.selected {
   border-color: var(--blue);
   box-shadow: 0 0 0 4px rgba(37,99,216,.16), 0 8px 20px rgba(16,43,70,.12);
@@ -638,6 +647,11 @@ tr:last-child td { border-bottom: 0; }
 .paper-card-tags em.requirement-tag {
   color: #9d174d;
   background: #fbcfe8;
+}
+
+.paper-card-tags em.delivery-tag {
+  color: #1d4ed8;
+  background: #dbeafe;
 }
 
 .paper-card-tags em.points-tag {
@@ -672,6 +686,11 @@ tr:last-child td { border-bottom: 0; }
   border-radius: 5px;
   background: #fce7f3;
   vertical-align: middle;
+}
+.paper-key.distance {
+  border-color: #93c5fd;
+  border-left-color: #2563d8;
+  background: #dbeafe;
 }
 .hint { margin-left: auto; }
 

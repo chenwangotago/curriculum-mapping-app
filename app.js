@@ -8,6 +8,7 @@
   const TEACHING_WEEKS = 12;
   const NZQCF_LEVEL_OPTIONS = [5, 6, 7, 8, 9, 10];
   const PAPER_REQUIREMENTS = ["Elective", "Compulsory"];
+  const DELIVERY_MODES = ["On campus", "Distance learning", "Hybrid / block"];
   const CONFIG = window.CURRICULUM_MAPPING_CONFIG || {};
   const URL_PARAMS = new URLSearchParams(window.location.search);
   const cloud = {
@@ -193,6 +194,7 @@
     return {
       id, code, title, level, x, y, roles,
       requirement: "Elective",
+      deliveryMode: "On campus",
       nzqfLevel: "",
       points: "",
       teachingStaff: "",
@@ -276,6 +278,17 @@
   function normaliseRequirement(value) {
     const text = String(value || "").trim().toLowerCase();
     return text.startsWith("comp") || text === "required" || text === "mandatory" ? "Compulsory" : "Elective";
+  }
+
+  function normaliseDeliveryMode(value) {
+    const text = String(value || "").trim().toLowerCase();
+    if (text.includes("distance") || text === "online") return "Distance learning";
+    if (text.includes("hybrid") || text.includes("block") || text.includes("blended")) return "Hybrid / block";
+    return "On campus";
+  }
+
+  function isDistanceLearningPaper(paperItem) {
+    return normaliseDeliveryMode(paperItem.deliveryMode) === "Distance learning";
   }
 
   function normaliseNzqfLevel(value) {
@@ -481,7 +494,7 @@
   function paperMetaLabel(paperItem) {
     const codeLevel = `Otago ${bandLabelForLevel(paperItem.level)}`;
     const nzqf = paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set";
-    return `${codeLevel} · ${nzqf} · ${paperPointsLabel(paperItem)}`;
+    return `${codeLevel} · ${nzqf} · ${paperPointsLabel(paperItem)} · ${normaliseDeliveryMode(paperItem.deliveryMode)}`;
   }
 
   function paperPointsLabel(paperItem) {
@@ -547,6 +560,7 @@
       level: Number(item.level) || 100,
       nzqfLevel: normaliseNzqfLevel(item.nzqfLevel),
       requirement: normaliseRequirement(item.requirement),
+      deliveryMode: normaliseDeliveryMode(item.deliveryMode),
       points: normalisePaperPoints(item.points),
       teachingStaff: item.teachingStaff || "",
       roles: Array.isArray(item.roles) ? item.roles : [],
@@ -1443,6 +1457,7 @@
       <span><i class="line recommended"></i>${escapeHtml(w.network.recommendedKey)}</span>
       <span><i class="line related"></i>${escapeHtml(w.network.relatedKey)}</span>
       <span><i class="paper-key compulsory"></i>Compulsory paper</span>
+      <span><i class="paper-key distance"></i>Distance learning paper</span>
       <span class="hint">${escapeHtml(w.network.hint)}</span>`;
   }
 
@@ -1586,13 +1601,14 @@
 
     const cards = byId("paper-cards");
     cards.innerHTML = state.papers.map((paperItem) => `
-      <article class="paper-card ${paperItem.requirement === "Compulsory" ? "compulsory" : ""}" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
+      <article class="paper-card ${paperItem.requirement === "Compulsory" ? "compulsory" : ""} ${isDistanceLearningPaper(paperItem) ? "distance" : ""}" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
         style="left:${paperItem.x}px;top:${paperItem.y}px">
         <small>${escapeHtml(paperCanvasLevelLabel(paperItem))}</small>
         <b>${escapeHtml(paperItem.code)}</b>
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
           ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
+          ${isDistanceLearningPaper(paperItem) ? `<em class="delivery-tag">Distance</em>` : ""}
           ${paperItem.points ? `<em class="points-tag">${escapeHtml(`${paperItem.points} pts`)}</em>` : ""}
           ${(paperItem.roles || []).slice(0, 2).map((role) => `<em>${escapeHtml(role.split(" / ")[0])}</em>`).join("")}
         </div>
@@ -1742,6 +1758,9 @@
         </select></label>
         <label class="field"><span>Programme requirement</span><select data-paper-field="requirement">
           ${PAPER_REQUIREMENTS.map((requirement) => `<option ${item.requirement === requirement ? "selected" : ""}>${requirement}</option>`).join("")}
+        </select></label>
+        <label class="field"><span>Delivery mode</span><select data-paper-field="deliveryMode">
+          ${DELIVERY_MODES.map((mode) => `<option ${normaliseDeliveryMode(item.deliveryMode) === mode ? "selected" : ""}>${mode}</option>`).join("")}
         </select></label>
         <label class="field"><span>Review status</span><select data-paper-field="status">
           ${["Draft","In discussion","Ready"].map((status) => `<option ${item.status === status ? "selected" : ""}>${status}</option>`).join("")}
@@ -1925,6 +1944,7 @@
             levels: new Set(),
             nzqcfLevels: new Set(),
             requirements: new Set(),
+            deliveryModes: new Set(),
             roles: new Set(),
             learningActivities: [],
             assessmentPatterns: []
@@ -1936,6 +1956,7 @@
         summary.levels.add(bandLabelForLevel(paperItem.level));
         summary.nzqcfLevels.add(paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set");
         summary.requirements.add(paperItem.requirement || "Elective");
+        summary.deliveryModes.add(normaliseDeliveryMode(paperItem.deliveryMode));
         (paperItem.roles || []).forEach((role) => summary.roles.add(role));
         summary.learningActivities.push(...numberedItems(paperItem.learningActivities, "LA").map((item) => item.text));
         summary.assessmentPatterns.push(...paperAssessments(paperItem.id).map((item) => [item.mode, item.purpose].filter(Boolean).join(" / ")));
@@ -1980,6 +2001,9 @@
         </div>
         <div class="staff-chip-row">
           <b>NZQCF:</b> ${[...summary.nzqcfLevels].map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>Not set</em>"}
+        </div>
+        <div class="staff-chip-row">
+          <b>Delivery:</b> ${[...summary.deliveryModes].map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>Not set</em>"}
         </div>
         <div class="staff-paper-list">
           ${summary.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code)).map((paperItem) => `
@@ -2221,7 +2245,8 @@
         { name: "points", label: "Points", value: "", type: "number" },
         { name: "level", label: "Otago paper code level", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) },
         { name: "nzqfLevel", label: "NZQCF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQCF Level ${level}` }))] },
-        { name: "requirement", label: "Programme requirement", value: "Elective", type: "select", options: PAPER_REQUIREMENTS }
+        { name: "requirement", label: "Programme requirement", value: "Elective", type: "select", options: PAPER_REQUIREMENTS },
+        { name: "deliveryMode", label: "Delivery mode", value: "On campus", type: "select", options: DELIVERY_MODES }
       ],
       onSave(values) {
         const id = uid("paper");
@@ -2232,6 +2257,7 @@
         const item = paper(id, values.code, values.title, level, 70 + column * columnWidth, 100 + (state.papers.length % 3) * 190, []);
         item.nzqfLevel = normaliseNzqfLevel(values.nzqfLevel);
         item.requirement = normaliseRequirement(values.requirement);
+        item.deliveryMode = normaliseDeliveryMode(values.deliveryMode);
         item.points = normalisePaperPoints(values.points);
         item.teachingStaff = values.teachingStaff || "";
         state.papers.push(item);
@@ -2580,6 +2606,7 @@
           <tbody>
             <tr><th>Otago paper code level</th><td>${escapeHtml(paperItem.level)}</td><th>NZQCF level</th><td>${escapeHtml(paperItem.nzqfLevel || "Not set")}</td></tr>
             <tr><th>Points</th><td>${escapeHtml(paperItem.points || "Not set")}</td><th>Requirement</th><td>${escapeHtml(paperItem.requirement || "Elective")}</td></tr>
+            <tr><th>Delivery mode</th><td colspan="3">${escapeHtml(normaliseDeliveryMode(paperItem.deliveryMode))}</td></tr>
             <tr><th>Review status</th><td colspan="3">${escapeHtml(paperItem.status || "")}</td></tr>
             <tr><th>Teaching staff</th><td colspan="3">${printableText(staffNamesForPaper(paperItem).join("; ") || "Not set")}</td></tr>
             <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
@@ -2958,6 +2985,8 @@
       nextValue = normaliseNzqfLevel(paperField.value);
     } else if (field === "requirement") {
       nextValue = normaliseRequirement(paperField.value);
+    } else if (field === "deliveryMode") {
+      nextValue = normaliseDeliveryMode(paperField.value);
     } else if (field === "points") {
       nextValue = normalisePaperPoints(paperField.value);
     } else {
@@ -2965,11 +2994,11 @@
     }
     if (item[field] === nextValue) return false;
     item[field] = nextValue;
-    if (["code", "title", "status", "requirement", "nzqfLevel", "level", "points"].includes(field)) deferRender("paperList");
-    if (["code", "title", "level", "nzqfLevel", "requirement", "points"].includes(field)) {
+    if (["code", "title", "status", "requirement", "deliveryMode", "nzqfLevel", "level", "points"].includes(field)) deferRender("paperList");
+    if (["code", "title", "level", "nzqfLevel", "requirement", "deliveryMode", "points"].includes(field)) {
       deferRender("mapping", "canvas", "assessments");
     }
-    if (["teachingStaff", "points", "level", "nzqfLevel", "requirement", "learningActivities"].includes(field)) deferRender("staff");
+    if (["teachingStaff", "points", "level", "nzqfLevel", "requirement", "deliveryMode", "learningActivities"].includes(field)) deferRender("staff");
     if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
     return true;
   }
