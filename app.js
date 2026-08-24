@@ -43,7 +43,8 @@
       programme: "1. Program",
       assessment: "2. Assessments",
       paper: "3. Papers",
-      actions: "4. Actions"
+      staff: "4. Staff / Workload",
+      actions: "5. Actions"
     },
     programme: {
       title: "Programme Whole Picture",
@@ -105,6 +106,12 @@
       help: "Review each paper's programme contribution, course learning outcomes, learning activities, assessment, and internal alignment.",
       addPaper: "Add paper",
       findPaper: "Find a paper"
+    },
+    staff: {
+      title: "Teaching Staff & Workload",
+      help: "Summarise who teaches which papers, how many paper points are attached, and where expertise or workload patterns may need discussion.",
+      summaryTitle: "Staff Workload Summary",
+      summaryHelp: "This is a planning view derived from paper information. It is not an official FTE workload calculation."
     },
     actions: {
       title: "Decisions & Actions",
@@ -178,6 +185,7 @@
       { id: "act2", title: "Review research preparation before HUMS215", owner: "Programme team", due: "2026-09-01", status: "In progress", notes: "Check 100-level activities." },
       { id: "act3", title: "Confirm capstone PLO evidence", decision: "Use the capstone project and reflection as direct PLO evidence.", owner: "HUMS399 team", due: "2026-07-15", status: "Completed", notes: "Mapped to project and reflection." }
     ],
+    staffNotes: {},
     wording: clone(DEFAULT_WORDING)
   };
 
@@ -187,6 +195,7 @@
       requirement: "Elective",
       nzqfLevel: "",
       points: "",
+      teachingStaff: "",
       status: "Draft",
       description: "",
       concepts: "Key concepts and knowledge domains.",
@@ -402,12 +411,14 @@
     const base = clone(DEFAULT_WORDING);
     const wording = mergeObject(base, value);
     wording.tabs = mergeObject(base.tabs, value.tabs);
+    if (!value.tabs?.staff && wording.tabs.actions === "4. Actions") wording.tabs.actions = base.tabs.actions;
     wording.programme = mergeObject(base.programme, value.programme);
     wording.programme.levelBands = normaliseLevelBands(value.programme?.levelBands);
     wording.alignment = mergeObject(base.alignment, value.alignment);
     wording.network = mergeObject(base.network, value.network);
     wording.assessment = mergeObject(base.assessment, value.assessment);
     wording.paper = mergeObject(base.paper, value.paper);
+    wording.staff = mergeObject(base.staff, value.staff);
     wording.actions = mergeObject(base.actions, value.actions);
     return wording;
   }
@@ -537,6 +548,7 @@
       nzqfLevel: normaliseNzqfLevel(item.nzqfLevel),
       requirement: normaliseRequirement(item.requirement),
       points: normalisePaperPoints(item.points),
+      teachingStaff: item.teachingStaff || "",
       roles: Array.isArray(item.roles) ? item.roles : [],
       description: item.description || "",
       ploLinks: item.ploLinks || {},
@@ -570,6 +582,7 @@
       connections: normaliseConnections(input.connections, validPaperIds),
       assessments,
       actions,
+      staffNotes: input.staffNotes && typeof input.staffNotes === "object" && !Array.isArray(input.staffNotes) ? input.staffNotes : {},
       wording: normaliseWording(input.wording)
     };
   }
@@ -668,6 +681,7 @@
       connections: [],
       assessments: [],
       actions: [],
+      staffNotes: {},
       wording: normaliseWording(wording)
     });
   }
@@ -1333,6 +1347,7 @@
     renderPaperList();
     renderPaperEditor();
     renderAssessments();
+    renderStaffWorkload();
     renderActions();
     applyReadOnlyStateSoon();
   }
@@ -1350,6 +1365,7 @@
     if (targets.has("canvas")) renderCanvas();
     if (targets.has("paperEditor")) renderPaperEditor();
     if (targets.has("assessments")) renderAssessments();
+    if (targets.has("staff")) renderStaffWorkload();
     if (targets.has("actions")) renderActions();
     applyReadOnlyStateSoon();
   }
@@ -1364,6 +1380,7 @@
     $$("[data-view='programme']").forEach((element) => { element.textContent = w.tabs.programme; });
     $$("[data-view='assessment']").forEach((element) => { element.textContent = w.tabs.assessment; });
     $$("[data-view='paper']").forEach((element) => { element.textContent = w.tabs.paper; });
+    $$("[data-view='staff']").forEach((element) => { element.textContent = w.tabs.staff; });
     $$("[data-view='actions']").forEach((element) => { element.textContent = w.tabs.actions; });
 
     setText("programme-view-title", w.programme.title);
@@ -1401,6 +1418,11 @@
     setText("paper-view-title", w.paper.title);
     setText("paper-view-help", w.paper.help);
     setText("paper-search-label", w.paper.findPaper);
+
+    setText("staff-view-title", w.staff.title);
+    setText("staff-view-help", w.staff.help);
+    setText("staff-summary-title", w.staff.summaryTitle);
+    setText("staff-summary-help", w.staff.summaryHelp);
 
     setText("actions-view-title", w.actions.title);
     setText("actions-view-help", w.actions.help);
@@ -1709,6 +1731,7 @@
       <div class="field-grid">
         <label class="field"><span>Paper code</span><input data-paper-field="code" value="${escapeHtml(item.code)}"></label>
         <label class="field"><span>Paper title</span><input data-paper-field="title" value="${escapeHtml(item.title)}"></label>
+        <label class="field wide"><span>Teaching staff</span><textarea class="staff-textarea" data-paper-field="teachingStaff" placeholder="One name per line, or separate names with commas / semicolons">${escapeHtml(item.teachingStaff || "")}</textarea></label>
         <label class="field"><span>Points</span><input type="number" min="1" step="1" data-paper-field="points" value="${escapeHtml(item.points || "")}" placeholder="e.g. 15, 18, 30, 60"></label>
         <label class="field"><span>Otago paper code level</span><select data-paper-field="level">
           ${paperLevelOptions().map((level) => `<option ${item.level === level ? "selected" : ""}>${level}</option>`).join("")}
@@ -1863,6 +1886,125 @@
       }).join("");
   }
 
+  function staffNamesForPaper(paperItem) {
+    const seen = new Set();
+    return String(paperItem.teachingStaff || "")
+      .split(/[\n,;]+/)
+      .map((name) => name.replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .filter((name) => {
+        const key = name.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function uniqueTextList(values, limit = 6) {
+    const seen = new Set();
+    const rows = [];
+    values.forEach((value) => {
+      const text = String(value || "").replace(/\s+/g, " ").trim();
+      const key = text.toLowerCase();
+      if (!text || seen.has(key)) return;
+      seen.add(key);
+      rows.push(text);
+    });
+    return rows.slice(0, limit);
+  }
+
+  function staffWorkloadSummaries() {
+    const summaries = new Map();
+    state.papers.forEach((paperItem) => {
+      staffNamesForPaper(paperItem).forEach((name) => {
+        if (!summaries.has(name)) {
+          summaries.set(name, {
+            name,
+            papers: [],
+            points: 0,
+            levels: new Set(),
+            nzqcfLevels: new Set(),
+            requirements: new Set(),
+            roles: new Set(),
+            learningActivities: [],
+            assessmentPatterns: []
+          });
+        }
+        const summary = summaries.get(name);
+        summary.papers.push(paperItem);
+        summary.points += Number(paperItem.points) || 0;
+        summary.levels.add(bandLabelForLevel(paperItem.level));
+        summary.nzqcfLevels.add(paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set");
+        summary.requirements.add(paperItem.requirement || "Elective");
+        (paperItem.roles || []).forEach((role) => summary.roles.add(role));
+        summary.learningActivities.push(...numberedItems(paperItem.learningActivities, "LA").map((item) => item.text));
+        summary.assessmentPatterns.push(...paperAssessments(paperItem.id).map((item) => [item.mode, item.purpose].filter(Boolean).join(" / ")));
+      });
+    });
+    return [...summaries.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function renderStaffWorkload() {
+    const metricsElement = byId("staff-metrics");
+    const gridElement = byId("staff-workload-grid");
+    if (!metricsElement || !gridElement) return;
+    const summaries = staffWorkloadSummaries();
+    const papersWithStaff = state.papers.filter((paperItem) => staffNamesForPaper(paperItem).length);
+    const papersWithoutStaff = state.papers.filter((paperItem) => !staffNamesForPaper(paperItem).length);
+    const namedPaperPoints = papersWithStaff.reduce((total, paperItem) => total + (Number(paperItem.points) || 0), 0);
+    const attachedPoints = summaries.reduce((total, summary) => total + summary.points, 0);
+    metricsElement.innerHTML = [
+      [summaries.length, "Named teaching staff"],
+      [papersWithStaff.length, "Papers with staff entered"],
+      [namedPaperPoints, "Named paper points"],
+      [attachedPoints, "Staff-attached points"],
+      [papersWithoutStaff.length, "Papers missing staff"]
+    ].map(([value, label]) => `<div class="metric"><b>${value}</b><span>${label}</span></div>`).join("");
+
+    if (!summaries.length) {
+      gridElement.innerHTML = `<div class="empty-state compact">No teaching staff entered yet. Add staff names in the Papers tab.</div>`;
+      return;
+    }
+
+    const cards = summaries.map((summary) => {
+      const learningActivities = uniqueTextList(summary.learningActivities, 5);
+      const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 5);
+      const note = state.staffNotes?.[summary.name] || "";
+      return `<article class="staff-card">
+        <div class="staff-card-heading">
+          <div><h3>${escapeHtml(summary.name)}</h3><p>${summary.papers.length} paper${summary.papers.length === 1 ? "" : "s"} · ${summary.points || 0} attached points</p></div>
+          <span>${escapeHtml([...summary.requirements].join(" / "))}</span>
+        </div>
+        <div class="staff-chip-row">
+          <b>Otago levels:</b> ${[...summary.levels].map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>Not set</em>"}
+        </div>
+        <div class="staff-chip-row">
+          <b>NZQCF:</b> ${[...summary.nzqcfLevels].map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>Not set</em>"}
+        </div>
+        <div class="staff-paper-list">
+          ${summary.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code)).map((paperItem) => `
+            <button type="button" data-open-paper="${paperItem.id}">
+              <b>${escapeHtml(paperItem.code)}</b>
+              <span>${escapeHtml(paperItem.title)}</span>
+              <small>${escapeHtml(paperPointsLabel(paperItem))} · ${escapeHtml(paperItem.requirement || "Elective")}</small>
+            </button>
+          `).join("")}
+        </div>
+        <div class="staff-patterns">
+          <div><b>Programme roles / expertise signals</b><p>${escapeHtml([...summary.roles].join("; ") || "No paper role selected yet.")}</p></div>
+          <div><b>Learning activity / pedagogy signals</b><p>${escapeHtml(learningActivities.join("; ") || "No learning activities entered yet.")}</p></div>
+          <div><b>Assessment patterns</b><p>${escapeHtml(assessmentPatterns.join("; ") || "No assessment mode entered yet.")}</p></div>
+        </div>
+        <label class="staff-note"><span>Workload / expertise note for Actions</span><textarea data-staff-note="${escapeHtml(summary.name)}" placeholder="Add workload, capacity, expertise, or succession-risk notes. These carry to Actions.">${escapeHtml(note)}</textarea></label>
+      </article>`;
+    }).join("");
+
+    const missing = papersWithoutStaff.length
+      ? `<section class="staff-missing"><h3>Papers Without Teaching Staff</h3><p>${papersWithoutStaff.map((paperItem) => `${paperItem.code} · ${paperItem.title}`).join("; ")}</p></section>`
+      : "";
+    gridElement.innerHTML = `${cards}${missing}`;
+  }
+
   function renderPloEvidenceSummary() {
     const levels = getLevelBands().map((band) => ({
       label: band.label,
@@ -1973,6 +2115,16 @@
         });
       }
     });
+    Object.entries(state.staffNotes || {}).forEach(([staffName, note]) => {
+      if (!note?.trim()) return;
+      notes.push({
+        id: `staff:${staffName}`,
+        source: "Staff workload note",
+        title: staffName,
+        note,
+        decision: ""
+      });
+    });
     return notes;
   }
 
@@ -2008,6 +2160,7 @@
       renderPaperList();
       renderPaperEditor();
     }
+    if (view === "staff") renderStaffWorkload();
     applyReadOnlyStateSoon();
   }
 
@@ -2064,6 +2217,7 @@
       fields: [
         { name: "code", label: "Paper code", value: "", required: true },
         { name: "title", label: "Paper title", value: "", required: true },
+        { name: "teachingStaff", label: "Teaching staff", value: "", type: "textarea" },
         { name: "points", label: "Points", value: "", type: "number" },
         { name: "level", label: "Otago paper code level", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) },
         { name: "nzqfLevel", label: "NZQCF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQCF Level ${level}` }))] },
@@ -2079,6 +2233,7 @@
         item.nzqfLevel = normaliseNzqfLevel(values.nzqfLevel);
         item.requirement = normaliseRequirement(values.requirement);
         item.points = normalisePaperPoints(values.points);
+        item.teachingStaff = values.teachingStaff || "";
         state.papers.push(item);
         state.alignments[id] = Object.fromEntries(state.plos.map((plo) => [plo.id, ""]));
         selectedPaperId = id;
@@ -2117,7 +2272,7 @@
       ],
       onSave(values) {
         state.assessments.push(assessment(uid("assessment"), values.paperId, values.name, Number(values.week), Number(values.weight), values.mode, values.aiContext, {}, values.diagnosisNote, values.purpose));
-        renderPaperEditor(); renderAssessments(); renderActions(); scheduleSave(); toast("Assessment added");
+        renderPaperEditor(); renderAssessments(); renderStaffWorkload(); renderActions(); scheduleSave(); toast("Assessment added");
       }
     });
   }
@@ -2202,6 +2357,7 @@
         { name: "programmeTab", label: "Program tab label", value: w.tabs.programme },
         { name: "assessmentTab", label: "Assessments tab label", value: w.tabs.assessment },
         { name: "paperTab", label: "Papers tab label", value: w.tabs.paper },
+        { name: "staffTab", label: "Staff / workload tab label", value: w.tabs.staff },
         { name: "actionsTab", label: "Actions tab label", value: w.tabs.actions },
         { name: "programmeTitle", label: "Program page title", value: w.programme.title },
         { name: "programmeHelp", label: "Program page description", value: w.programme.help, type: "textarea" },
@@ -2224,6 +2380,8 @@
         { name: "assessmentHelp", label: "Assessment page description", value: w.assessment.help, type: "textarea" },
         { name: "paperTitle", label: "Paper page title", value: w.paper.title },
         { name: "paperHelp", label: "Paper page description", value: w.paper.help, type: "textarea" },
+        { name: "staffTitle", label: "Staff / workload page title", value: w.staff.title },
+        { name: "staffHelp", label: "Staff / workload page description", value: w.staff.help, type: "textarea" },
         { name: "actionsTitle", label: "Actions page title", value: w.actions.title },
         { name: "actionsHelp", label: "Actions page description", value: w.actions.help, type: "textarea" }
       ],
@@ -2233,6 +2391,7 @@
             programme: values.programmeTab,
             assessment: values.assessmentTab,
             paper: values.paperTab,
+            staff: values.staffTab,
             actions: values.actionsTab
           },
           programme: {
@@ -2270,6 +2429,11 @@
             ...getWording().paper,
             title: values.paperTitle,
             help: values.paperHelp
+          },
+          staff: {
+            ...getWording().staff,
+            title: values.staffTitle,
+            help: values.staffHelp
           },
           actions: {
             ...getWording().actions,
@@ -2350,6 +2514,29 @@
     return diagnosisRows || standaloneRows ? `${diagnosisRows}${standaloneRows}` : `<tr><td colspan="5">No actions or diagnosis notes.</td></tr>`;
   }
 
+  function printableStaffRows() {
+    const rows = staffWorkloadSummaries().map((summary) => {
+      const papers = summary.papers
+        .slice()
+        .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
+        .map((paperItem) => `${paperItem.code} ${paperPointsLabel(paperItem)}`)
+        .join("; ");
+      const learningActivities = uniqueTextList(summary.learningActivities, 4).join("; ");
+      const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 4).join("; ");
+      return `<tr>
+        <td><b>${escapeHtml(summary.name)}</b><br>${printableText(state.staffNotes?.[summary.name] || "")}</td>
+        <td>${printableText(papers || "No papers")}</td>
+        <td>${escapeHtml(summary.points || 0)}</td>
+        <td>${escapeHtml([...summary.levels].join("; ") || "Not set")}</td>
+        <td>${escapeHtml([...summary.nzqcfLevels].join("; ") || "Not set")}</td>
+        <td>${printableText([...summary.roles].join("; ") || "No paper role selected.")}</td>
+        <td>${printableText(learningActivities || "No learning activities entered.")}</td>
+        <td>${printableText(assessmentPatterns || "No assessment mode entered.")}</td>
+      </tr>`;
+    }).join("");
+    return rows || `<tr><td colspan="8">No teaching staff entered.</td></tr>`;
+  }
+
   function printableReportHtml() {
     const sortedPapers = state.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code));
     const reportDate = formatSnapshotTimestamp();
@@ -2394,6 +2581,7 @@
             <tr><th>Otago paper code level</th><td>${escapeHtml(paperItem.level)}</td><th>NZQCF level</th><td>${escapeHtml(paperItem.nzqfLevel || "Not set")}</td></tr>
             <tr><th>Points</th><td>${escapeHtml(paperItem.points || "Not set")}</td><th>Requirement</th><td>${escapeHtml(paperItem.requirement || "Elective")}</td></tr>
             <tr><th>Review status</th><td colspan="3">${escapeHtml(paperItem.status || "")}</td></tr>
+            <tr><th>Teaching staff</th><td colspan="3">${printableText(staffNamesForPaper(paperItem).join("; ") || "Not set")}</td></tr>
             <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
             <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code} ${plo.level}`).join("; ") || "None mapped")}</td></tr>
             <tr><th>Network relationships</th><td colspan="3">${printableText(relationships || "No network relationships mapped.")}</td></tr>
@@ -2461,6 +2649,10 @@
 
         <h2>Paper Details</h2>
         ${paperSections || "<p>No paper details entered.</p>"}
+
+        <h2>Teaching Staff And Workload</h2>
+        <p class="muted">Paper points are attached to named staff for planning discussion; they are not divided across co-teachers and are not an official FTE calculation.</p>
+        <table><thead><tr><th>Staff</th><th>Papers</th><th>Attached points</th><th>Otago levels</th><th>NZQCF levels</th><th>Roles / expertise signals</th><th>Learning activity signals</th><th>Assessment patterns</th></tr></thead><tbody>${printableStaffRows()}</tbody></table>
 
         <h2>Decisions And Actions</h2>
         <table><thead><tr><th>Diagnosis note</th><th>Decision / action</th><th>Status</th><th>Owner</th><th>Notes</th></tr></thead><tbody>${printableActionRows()}</tbody></table>
@@ -2777,6 +2969,7 @@
     if (["code", "title", "level", "nzqfLevel", "requirement", "points"].includes(field)) {
       deferRender("mapping", "canvas", "assessments");
     }
+    if (["teachingStaff", "points", "level", "nzqfLevel", "requirement", "learningActivities"].includes(field)) deferRender("staff");
     if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
     return true;
   }
@@ -2793,6 +2986,7 @@
       "[data-paper-activity-link]",
       "[data-paper-field]",
       "[data-assessment-field]",
+      "[data-staff-note]",
       "[data-note-action-field]",
       "[data-standalone-action-field]",
       "[data-connection-field]"
@@ -2822,6 +3016,10 @@
       const assessmentId = row?.dataset.assessmentRow || "unknown";
       const field = element.dataset.assessmentField;
       return { key: `assessment-field:${assessmentId}:${field}`, label: `${assessmentLabel(assessmentId)} ${field}`, value: valueForElement(element) };
+    }
+    if (element.matches("[data-staff-note]")) {
+      const staffName = element.dataset.staffNote || "Unknown staff";
+      return { key: `staff-note:${staffName}`, label: `Staff workload note for ${staffName}`, value: valueForElement(element) };
     }
     if (element.matches("[data-note-action-field]")) {
       const row = element.closest("[data-diagnosis-source]");
@@ -2994,7 +3192,7 @@
     if (deleteAssessment) {
       if (!canEditWorkspace()) return;
       state.assessments = state.assessments.filter((item) => item.id !== deleteAssessment.dataset.deleteAssessment);
-      renderPaperEditor(); renderAssessments(); renderActions(); return scheduleSave();
+      renderPaperEditor(); renderAssessments(); renderStaffWorkload(); renderActions(); return scheduleSave();
     }
 
     const deleteConnection = event.target.closest("[data-delete-connection]");
@@ -3111,7 +3309,17 @@
       const field = assessmentField.dataset.assessmentField;
       const value = assessmentField.matches("input, textarea, select") ? assessmentField.value : assessmentField.textContent.trim();
       item[field] = ["week","weight"].includes(field) ? Number(value) : value;
+      if (["mode", "purpose"].includes(field)) deferRender("staff");
       if (field === "diagnosisNote") deferRender("actions");
+      return scheduleSave();
+    }
+
+    const staffNote = event.target.closest("[data-staff-note]");
+    if (staffNote) {
+      if (!canEditWorkspace(false)) return;
+      state.staffNotes ||= {};
+      state.staffNotes[staffNote.dataset.staffNote] = staffNote.value;
+      deferRender("actions");
       return scheduleSave();
     }
 
@@ -3168,6 +3376,8 @@
 
     if (event.target.closest("[data-assessment-field]")) {
       deferRender("paperEditor", "assessments");
+      const field = event.target.closest("[data-assessment-field]")?.dataset.assessmentField;
+      if (["mode", "purpose"].includes(field)) deferRender("staff");
     }
     const changedPaperField = event.target.closest("[data-paper-field]");
     if (changedPaperField && changedPaperField.matches("select") && applyPaperFieldValue(changedPaperField)) {

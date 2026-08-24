@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=23">
+  <link rel="stylesheet" href="styles.css?v=24">
 </head>
 <body>
   <header class="app-header">
@@ -42,7 +42,8 @@
     <button class="tab active" data-view="programme">1. Program</button>
     <button class="tab" data-view="assessment">2. Assessments</button>
     <button class="tab" data-view="paper">3. Papers</button>
-    <button class="tab" data-view="actions">4. Actions</button>
+    <button class="tab" data-view="staff">4. Staff / Workload</button>
+    <button class="tab" data-view="actions">5. Actions</button>
   </nav>
 
   <main>
@@ -228,6 +229,23 @@
       </div>
     </section>
 
+    <section class="view" id="view-staff">
+      <div class="view-heading">
+        <div>
+          <h2 id="staff-view-title">Teaching Staff & Workload</h2>
+          <p id="staff-view-help">Summarise who teaches which papers, how many paper points are attached, and where expertise or workload patterns may need discussion.</p>
+        </div>
+      </div>
+      <section class="workspace-section">
+        <div class="section-heading">
+          <h3 id="staff-summary-title">Staff Workload Summary</h3>
+          <p id="staff-summary-help">This is a planning view derived from paper information. It is not an official FTE workload calculation.</p>
+        </div>
+        <div class="metric-grid" id="staff-metrics"></div>
+        <div class="staff-workload-grid" id="staff-workload-grid"></div>
+      </section>
+    </section>
+
     <section class="view" id="view-actions">
       <div class="view-heading">
         <div>
@@ -270,6 +288,6 @@
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=25"></script>
+  <script src="app.js?v=26"></script>
 </body>
 </html>
