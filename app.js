@@ -5,6 +5,7 @@
   const HISTORY_KEY = "curriculum-mapping-workspace-history-v1";
   const SESSION_NAME_KEY = "curriculum-mapping-session-name-v1";
   const CLIENT_ID_KEY = "curriculum-mapping-client-id-v1";
+  const TEACHING_WEEKS = 12;
   const CONFIG = window.CURRICULUM_MAPPING_CONFIG || {};
   const URL_PARAMS = new URLSearchParams(window.location.search);
   const cloud = {
@@ -1599,7 +1600,7 @@
     const assessmentRows = assessments.map((assessmentItem) => `
       <tr data-assessment-row="${assessmentItem.id}">
         <td class="editable-cell" contenteditable="true" data-assessment-field="name">${escapeHtml(assessmentItem.name)}</td>
-        <td><input type="number" min="1" max="13" data-assessment-field="week" value="${assessmentItem.week}" aria-label="Due week"></td>
+        <td><input type="number" min="1" max="${TEACHING_WEEKS}" data-assessment-field="week" value="${assessmentItem.week}" aria-label="Due week"></td>
         <td><input type="number" min="0" max="100" data-assessment-field="weight" value="${assessmentItem.weight}" aria-label="Weight percent"></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="mode">${escapeHtml(assessmentItem.mode)}</td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="purpose">${escapeHtml(assessmentItem.purpose || "")}</td>
@@ -1698,7 +1699,7 @@
       return `<tr data-assessment-row="${item.id}">
         <td class="paper-cell"><b>${escapeHtml(paperItem?.code || "Unassigned")}</b></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="name">${escapeHtml(item.name)}</td>
-        <td><input type="number" min="1" max="13" data-assessment-field="week" value="${item.week}" aria-label="Due week"></td>
+        <td><input type="number" min="1" max="${TEACHING_WEEKS}" data-assessment-field="week" value="${item.week}" aria-label="Due week"></td>
         <td><input type="number" min="0" max="100" data-assessment-field="weight" value="${item.weight}" aria-label="Weight percent"></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="mode">${escapeHtml(item.mode)}</td>
         <td class="editable-cell compact-edit" contenteditable="true" data-assessment-field="purpose">${escapeHtml(item.purpose || "")}</td>
@@ -1723,7 +1724,7 @@
     renderPloEvidenceSummary();
     renderProgrammeEvidence();
 
-    const weeks = Array.from({ length: 13 }, (_, index) => index + 1);
+    const weeks = Array.from({ length: TEACHING_WEEKS }, (_, index) => index + 1);
     byId("assessment-timeline").innerHTML = weeks.map((week) => {
       const items = state.assessments.filter((item) => Number(item.week) === week);
       return `<div class="week"><b>W${week}</b>${items.map((item) => {

@@ -1079,7 +1079,7 @@ textarea { min-height: 88px; resize: vertical; line-height: 1.45; }
 
 .timeline {
   display: grid;
-  grid-template-columns: repeat(13, minmax(62px, 1fr));
+  grid-template-columns: repeat(12, minmax(62px, 1fr));
   gap: 6px;
   overflow-x: auto;
 }
