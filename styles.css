@@ -302,8 +302,14 @@ main {
 
 .plo-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
   gap: 10px;
+}
+
+@media (min-width: 1150px) {
+  .plo-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
 }
 
 .plo-card {
