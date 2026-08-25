@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Division-level overview for curriculum mapping programme workspaces.">
+  <title>Division Curriculum Mapping Overview</title>
+  <link rel="stylesheet" href="styles.css?v=32">
+</head>
+<body class="division-page">
+  <header class="app-header">
+    <div>
+      <div class="eyebrow">Curriculum Mapping</div>
+      <h1>Division Overview</h1>
+      <div class="header-meta">
+        <span id="division-source-status">No programme sources loaded</span>
+        <span id="division-refresh-status">Not refreshed yet</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="button ghost" id="refresh-division-button">Refresh data</button>
+      <button class="button ghost" id="export-division-csv-button">Export programme CSV</button>
+      <button class="button ghost" id="export-staff-csv-button">Export staff CSV</button>
+      <a class="button ghost link-button" href="index.html">Programme dashboard</a>
+    </div>
+  </header>
+
+  <main class="division-main">
+    <section class="workspace-section division-source-section">
+      <div class="section-heading split">
+        <div>
+          <span class="step">1</span>
+          <h3>Programme Sources</h3>
+          <p>Add programme workspace links that should feed this division view. Prefer view links when leadership only needs read access.</p>
+        </div>
+        <button class="button danger-text" id="clear-division-sources-button">Clear sources</button>
+      </div>
+      <div class="division-source-grid">
+        <label class="field">
+          <span>Programme workspace links</span>
+          <textarea id="division-link-input" placeholder="Paste one or more programme links here, one per line."></textarea>
+        </label>
+        <div class="division-source-actions">
+          <button class="button primary dark" id="add-division-link-button">Add links</button>
+          <p class="muted-text">This page reads only the workspaces you add here. Links are saved in this browser, not shown on the dashboard.</p>
+        </div>
+      </div>
+      <div class="source-list" id="division-source-list"></div>
+    </section>
+
+    <section class="workspace-section">
+      <div class="section-heading">
+        <span class="step">2</span>
+        <h3>Division Snapshot</h3>
+        <p>Headline counts across loaded programme workspaces.</p>
+      </div>
+      <div class="metric-grid division-metrics" id="division-metrics"></div>
+    </section>
+
+    <section class="workspace-section">
+      <div class="section-heading">
+        <span class="step">3</span>
+        <h3>Programme Structure Comparison</h3>
+        <p>Compare programme size, double coding, level structure, modality, staff, and assessment evidence.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="division-table" id="division-programme-table"></table>
+      </div>
+    </section>
+
+    <section class="division-grid">
+      <article class="workspace-section chart-card">
+        <div class="section-heading">
+          <h3>Double-Coded Papers By Programme</h3>
+          <p>Shows both count and share of papers that carry more than one paper code.</p>
+        </div>
+        <div id="double-coded-chart"></div>
+      </article>
+
+      <article class="workspace-section chart-card">
+        <div class="section-heading">
+          <h3>Otago Code Band Mix</h3>
+          <p>Counts papers by their Otago paper code band, including second code bands for double-coded papers.</p>
+        </div>
+        <div id="level-mix-chart"></div>
+      </article>
+    </section>
+
+    <section class="division-grid">
+      <article class="workspace-section chart-card">
+        <div class="section-heading">
+          <h3>NZQCF Level Mix</h3>
+          <p>Counts papers by qualification level where NZQCF level has been entered.</p>
+        </div>
+        <div id="nzqcf-mix-chart"></div>
+      </article>
+
+      <article class="workspace-section chart-card">
+        <div class="section-heading">
+          <h3>Assessment Evidence Coverage</h3>
+          <p>Programme-level signal only: how many PLOs have any or direct assessment evidence.</p>
+        </div>
+        <div class="table-wrap compact-table-wrap">
+          <table class="division-table" id="division-assessment-table"></table>
+        </div>
+      </article>
+    </section>
+
+    <section class="workspace-section">
+      <div class="section-heading">
+        <span class="step">4</span>
+        <h3>Teaching Staff Across Programmes</h3>
+        <p>Derived from Teaching staff entered in programme workspaces. Paper points are attached to each named staff member for planning discussion; they are not divided across co-teachers.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="division-table" id="division-staff-table"></table>
+      </div>
+    </section>
+
+    <section class="workspace-section">
+      <div class="section-heading">
+        <span class="step">5</span>
+        <h3>Diagnosis Notes And Actions</h3>
+        <p>Issues and action signals collected from programme, paper, assessment, and staff notes.</p>
+      </div>
+      <div class="table-wrap">
+        <table class="division-table" id="division-diagnosis-table"></table>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script src="config.js?v=2"></script>
+  <script src="division.js?v=1"></script>
+</body>
+</html>

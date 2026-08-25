@@ -54,6 +54,27 @@ It is not a full login/role system. Do not use it for highly sensitive data unti
 
 To start another programme, use `New workspace` from an admin link. The app will ask for the programme name, create a separate cloud workspace, and switch to that new workspace's admin link.
 
+## Division Overview
+
+The division overview lives at:
+
+```text
+https://your-site/curriculum-mapping-app/division.html
+```
+
+It is a lightweight admin/leadership dashboard that reads the programme workspace links you add to it. It does not automatically list every workspace in Supabase.
+
+Recommended use:
+
+1. Open `division.html`.
+2. Paste one or more programme workspace links into `Programme workspace links`.
+3. Prefer view links when leadership only needs read-only access.
+4. Click `Add links`.
+5. Use `Refresh data` to reload the latest programme data.
+6. Use the CSV exports for programme-level and staff-level summary tables.
+
+The list of programme sources is saved in the current browser only. For a future stricter division dashboard, add a separate cloud-saved division workspace and user login/roles.
+
 ## Collaboration Model
 
 The first cloud version uses private links, autosave, and polling every few seconds for near-real-time updates.
