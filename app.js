@@ -8,7 +8,9 @@
   const TEACHING_WEEKS = 12;
   const NZQCF_LEVEL_OPTIONS = [5, 6, 7, 8, 9, 10];
   const PAPER_REQUIREMENTS = ["Elective", "Compulsory"];
+  const PAPER_STRUCTURES = ["Single code", "Double-coded"];
   const DELIVERY_MODES = ["On campus", "Distance learning", "Hybrid / block"];
+  const ASSESSMENT_SIDES = ["Whole paper", "First code side", "Second code side"];
   const CONFIG = window.CURRICULUM_MAPPING_CONFIG || {};
   const URL_PARAMS = new URLSearchParams(window.location.search);
   const cloud = {
@@ -155,6 +157,7 @@
     paperRoles: "Select one or more roles for the paper, such as core spine, gateway, service paper, methods, or capstone.",
     paperPloLinks: "This shows which PLOs the paper supports based on the Program alignment table.",
     paperNetwork: "These relationships come from the Program network board. You can adjust type, direction, or related paper here.",
+    doubleCodedPaper: "Use this when one teaching paper carries two paper codes, levels, or enrolment identities. The board shows it as one wider split card, while the paper profile can separate the second-side CLOs, activities, and assessment notes.",
     paperDescription: "Use this for the official or locally agreed paper description.",
     clos: "Enter one Course Learning Outcome per line. The app labels them CLO1, CLO2, and so on.",
     learningActivities: "Enter one activity per line. The app labels them LA1, LA2, and so on for internal alignment.",
@@ -237,6 +240,10 @@
   function paper(id, code, title, level, x, y, roles) {
     return {
       id, code, title, level, x, y, roles,
+      structure: "Single code",
+      secondaryCode: "",
+      secondaryLevel: "",
+      secondaryNzqfLevel: "",
       requirement: "Elective",
       deliveryMode: "On campus",
       nzqfLevel: "",
@@ -247,15 +254,20 @@
       concepts: "Key concepts and knowledge domains.",
       learningOutcomes: "Explain selected concepts.\nAnalyse relevant texts or evidence.\nCommunicate a supported claim.",
       learningActivities: "Lectures and guided workshops.\nPractice activities with feedback.\nPeer discussion.",
+      secondaryLearningOutcomes: "",
+      secondaryLearningActivities: "",
+      secondaryAssessmentNotes: "",
       ploLinks: {},
       activityLinks: {},
+      secondaryPloLinks: {},
+      secondaryActivityLinks: {},
       diagnosisNote: "",
       agreedAction: ""
     };
   }
 
-  function assessment(id, paperId, name, week, weight, mode, aiContext, evidence, diagnosisNote = "", purpose = "") {
-    return { id, paperId, name, week, weight, mode, aiContext, purpose, evidence, diagnosisNote };
+  function assessment(id, paperId, name, week, weight, mode, aiContext, evidence, diagnosisNote = "", purpose = "", side = "Whole paper") {
+    return { id, paperId, name, week, weight, mode, aiContext, purpose, evidence, diagnosisNote, side };
   }
 
   let state = loadState();
@@ -334,6 +346,22 @@
 
   function isDistanceLearningPaper(paperItem) {
     return normaliseDeliveryMode(paperItem.deliveryMode) === "Distance learning";
+  }
+
+  function normalisePaperStructure(value) {
+    const text = String(value || "").trim().toLowerCase();
+    return text.includes("double") || text.includes("dual") || text.includes("cross") ? "Double-coded" : "Single code";
+  }
+
+  function isDoubleCodedPaper(paperItem) {
+    return normalisePaperStructure(paperItem?.structure) === "Double-coded";
+  }
+
+  function normaliseAssessmentSide(value) {
+    const text = String(value || "").trim().toLowerCase();
+    if (text.includes("second") || text.includes("secondary") || text.includes("right") || text === "2") return "Second code side";
+    if (text.includes("first") || text.includes("primary") || text.includes("left") || text === "1") return "First code side";
+    return "Whole paper";
   }
 
   function normaliseNzqfLevel(value) {
@@ -521,10 +549,16 @@
 
   function getNzqfBands() {
     const levels = [...new Set(state.papers
-      .map((paperItem) => normaliseNzqfLevel(paperItem.nzqfLevel))
+      .flatMap((paperItem) => [
+        normaliseNzqfLevel(paperItem.nzqfLevel),
+        isDoubleCodedPaper(paperItem) ? normaliseNzqfLevel(paperItem.secondaryNzqfLevel) : ""
+      ])
       .filter(Boolean))]
       .sort((a, b) => a - b);
-    const hasUnassigned = state.papers.some((paperItem) => !normaliseNzqfLevel(paperItem.nzqfLevel));
+    const hasUnassigned = state.papers.some((paperItem) =>
+      !normaliseNzqfLevel(paperItem.nzqfLevel)
+      || (isDoubleCodedPaper(paperItem) && !normaliseNzqfLevel(paperItem.secondaryNzqfLevel))
+    );
     const source = levels.length ? levels : [7, 8, 9];
     const bands = source.map((level) => ({
       label: `NZQCF Level ${level}`,
@@ -551,17 +585,54 @@
     return bandForLevel(level)?.label || `${level}-level`;
   }
 
+  function uniqueLabels(values) {
+    const seen = new Set();
+    return values
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .filter((value) => {
+        const key = value.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function paperCodeLabel(paperItem) {
+    if (!isDoubleCodedPaper(paperItem)) return paperItem.code || "Untitled paper";
+    return uniqueLabels([paperItem.code, paperItem.secondaryCode || "Second code"]).join(" / ");
+  }
+
   function paperCanvasLevelLabel(paperItem) {
     if (isNzqfGrouping()) {
-      return paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set";
+      const levels = uniqueLabels([
+        paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set",
+        isDoubleCodedPaper(paperItem)
+          ? (paperItem.secondaryNzqfLevel ? `NZQCF ${paperItem.secondaryNzqfLevel}` : "Second NZQCF not set")
+          : ""
+      ]);
+      return levels.join(" / ");
     }
-    return `Otago ${bandLabelForLevel(paperItem.level)}`;
+    const levels = uniqueLabels([
+      bandLabelForLevel(paperItem.level),
+      isDoubleCodedPaper(paperItem) && paperItem.secondaryLevel ? bandLabelForLevel(paperItem.secondaryLevel) : ""
+    ]);
+    return `Otago ${levels.join(" / ")}`;
   }
 
   function paperMetaLabel(paperItem) {
-    const codeLevel = `Otago ${bandLabelForLevel(paperItem.level)}`;
-    const nzqf = paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set";
-    return `${codeLevel} · ${nzqf} · ${paperPointsLabel(paperItem)} · ${normaliseDeliveryMode(paperItem.deliveryMode)}`;
+    const codeLevel = `Otago ${uniqueLabels([
+      bandLabelForLevel(paperItem.level),
+      isDoubleCodedPaper(paperItem) && paperItem.secondaryLevel ? bandLabelForLevel(paperItem.secondaryLevel) : ""
+    ]).join(" / ")}`;
+    const nzqf = uniqueLabels([
+      paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set",
+      isDoubleCodedPaper(paperItem)
+        ? (paperItem.secondaryNzqfLevel ? `NZQCF ${paperItem.secondaryNzqfLevel}` : "Second NZQCF not set")
+        : ""
+    ]).join(" / ");
+    const structure = isDoubleCodedPaper(paperItem) ? "Double-coded" : "";
+    return [structure, codeLevel, nzqf, paperPointsLabel(paperItem), normaliseDeliveryMode(paperItem.deliveryMode)].filter(Boolean).join(" · ");
   }
 
   function paperPointsLabel(paperItem) {
@@ -571,14 +642,20 @@
   function nzqfLevelOptions() {
     return [...new Set([
       ...NZQCF_LEVEL_OPTIONS,
-      ...state.papers.map((paperItem) => normaliseNzqfLevel(paperItem.nzqfLevel)).filter(Boolean)
+      ...state.papers.flatMap((paperItem) => [
+        normaliseNzqfLevel(paperItem.nzqfLevel),
+        normaliseNzqfLevel(paperItem.secondaryNzqfLevel)
+      ]).filter(Boolean)
     ])].sort((a, b) => a - b);
   }
 
   function paperLevelOptions() {
     return [...new Set([
       ...getLevelBands().map((band) => band.defaultLevel),
-      ...state.papers.map((paperItem) => Number(paperItem.level) || 0)
+      ...state.papers.flatMap((paperItem) => [
+        Number(paperItem.level) || 0,
+        Number(paperItem.secondaryLevel) || 0
+      ])
     ].filter(Boolean))].sort((a, b) => a - b);
   }
 
@@ -627,16 +704,25 @@
     const papers = (Array.isArray(input.papers) ? input.papers : base.papers).map((item) => ({
       ...paper(item.id, item.code, item.title, Number(item.level) || 100, Number(item.x) || 70, Number(item.y) || 100, Array.isArray(item.roles) ? item.roles : []),
       ...item,
+      structure: normalisePaperStructure(item.structure || (item.secondaryCode || item.alternateCode ? "Double-coded" : "")),
       level: Number(item.level) || 100,
+      secondaryLevel: Number(item.secondaryLevel) || "",
       nzqfLevel: normaliseNzqfLevel(item.nzqfLevel),
+      secondaryNzqfLevel: normaliseNzqfLevel(item.secondaryNzqfLevel),
+      secondaryCode: String(item.secondaryCode || item.alternateCode || ""),
       requirement: normaliseRequirement(item.requirement),
       deliveryMode: normaliseDeliveryMode(item.deliveryMode),
       points: normalisePaperPoints(item.points),
       teachingStaff: item.teachingStaff || "",
       roles: Array.isArray(item.roles) ? item.roles : [],
       description: item.description || "",
+      secondaryLearningOutcomes: item.secondaryLearningOutcomes || "",
+      secondaryLearningActivities: item.secondaryLearningActivities || "",
+      secondaryAssessmentNotes: item.secondaryAssessmentNotes || "",
       ploLinks: item.ploLinks || {},
       activityLinks: item.activityLinks || {},
+      secondaryPloLinks: item.secondaryPloLinks || {},
+      secondaryActivityLinks: item.secondaryActivityLinks || {},
       diagnosisNote: item.diagnosisNote || "",
       agreedAction: item.agreedAction || ""
     }));
@@ -645,6 +731,7 @@
       ...item,
       week: Number(item.week) || 1,
       weight: Number(item.weight) || 0,
+      side: normaliseAssessmentSide(item.side),
       evidence: item.evidence || {},
       diagnosisNote: item.diagnosisNote || ""
     }));
@@ -1577,6 +1664,7 @@
       <span><i class="line related"></i>${escapeHtml(w.network.relatedKey)}</span>
       <span><i class="paper-key compulsory"></i>Compulsory paper</span>
       <span><i class="paper-key distance"></i>Distance learning paper</span>
+      <span><i class="paper-key double-coded"></i>Double-coded paper</span>
       <span class="hint">${escapeHtml(w.network.hint)}</span>`;
   }
 
@@ -1610,7 +1698,7 @@
         }).join("");
         return `<tr>
           <td class="paper-cell" data-open-paper="${paperItem.id}">
-            <b>${escapeHtml(paperItem.code)}</b><span>${escapeHtml(paperItem.title)}</span>
+            <b>${escapeHtml(paperCodeLabel(paperItem))}</b><span>${escapeHtml(paperItem.title)}</span>
             <small class="paper-cell-meta">${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small>
           </td>
           ${cells}
@@ -1630,11 +1718,54 @@
     return state.assessments.filter((item) => item.paperId === paperId);
   }
 
+  function paperCardCodesHtml(paperItem) {
+    if (!isDoubleCodedPaper(paperItem)) return `<b>${escapeHtml(paperItem.code)}</b>`;
+    return `<div class="paper-card-double-codes" aria-label="Double-coded paper codes">
+      <b>${escapeHtml(paperItem.code || "Main code")}</b>
+      <b>${escapeHtml(paperItem.secondaryCode || "Second code")}</b>
+    </div>`;
+  }
+
   function assessmentPloSummary(item) {
     const mapped = state.plos
       .filter((plo) => item.evidence?.[plo.id])
       .map((plo) => `${plo.code} ${item.evidence[plo.id]}`);
     return mapped.length ? mapped.join(", ") : "No PLO evidence mapped yet";
+  }
+
+  function assessmentSideLabel(item) {
+    const paperItem = state.papers.find((paperValue) => paperValue.id === item.paperId);
+    if (!isDoubleCodedPaper(paperItem)) return "Whole paper";
+    const side = normaliseAssessmentSide(item?.side);
+    if (side === "Whole paper") return "Whole paper";
+    if (side === "First code side") return `${paperItem?.code || "First code"} side`;
+    return `${paperItem?.secondaryCode || "Second code"} side`;
+  }
+
+  function assessmentSideOptionsHtml(item) {
+    const paperItem = state.papers.find((paperValue) => paperValue.id === item.paperId);
+    const selected = isDoubleCodedPaper(paperItem) ? normaliseAssessmentSide(item.side) : "Whole paper";
+    const options = isDoubleCodedPaper(paperItem)
+      ? ASSESSMENT_SIDES.map((side) => {
+        const label = side === "First code side"
+          ? `${paperItem.code || "First code"} side`
+          : side === "Second code side"
+            ? `${paperItem.secondaryCode || "Second code"} side`
+            : side;
+        return { value: side, label };
+      })
+      : [{ value: "Whole paper", label: "Whole paper" }];
+    return options.map((option) => `<option value="${escapeHtml(option.value)}" ${selected === option.value ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("");
+  }
+
+  function assessmentOtagoLevels(item) {
+    const paperItem = state.papers.find((paperValue) => paperValue.id === item.paperId);
+    if (!paperItem) return [0];
+    if (!isDoubleCodedPaper(paperItem)) return [Number(paperItem.level) || 0];
+    const side = normaliseAssessmentSide(item.side);
+    if (side === "First code side") return [Number(paperItem.level) || 0];
+    if (side === "Second code side") return [Number(paperItem.secondaryLevel) || Number(paperItem.level) || 0];
+    return uniqueLabels([paperItem.level, paperItem.secondaryLevel]).map((level) => Number(level) || 0);
   }
 
   function numberedItems(value, prefix) {
@@ -1677,7 +1808,7 @@
     return state.papers
       .filter((item) => item.id !== excludeId)
       .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
-      .map((item) => `<option value="${item.id}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(item.code)} · ${escapeHtml(item.title)}</option>`)
+      .map((item) => `<option value="${item.id}" ${item.id === selectedId ? "selected" : ""}>${escapeHtml(paperCodeLabel(item))} · ${escapeHtml(item.title)}</option>`)
       .join("");
   }
 
@@ -1720,14 +1851,15 @@
 
     const cards = byId("paper-cards");
     cards.innerHTML = state.papers.map((paperItem) => `
-      <article class="paper-card ${paperItem.requirement === "Compulsory" ? "compulsory" : ""} ${isDistanceLearningPaper(paperItem) ? "distance" : ""}" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
+      <article class="paper-card ${paperItem.requirement === "Compulsory" ? "compulsory" : ""} ${isDistanceLearningPaper(paperItem) ? "distance" : ""} ${isDoubleCodedPaper(paperItem) ? "double-coded" : ""}" id="card-${paperItem.id}" data-paper-id="${paperItem.id}"
         style="left:${paperItem.x}px;top:${paperItem.y}px">
         <div class="paper-card-head">
-          <b>${escapeHtml(paperItem.code)}</b>
+          ${paperCardCodesHtml(paperItem)}
           <small>${escapeHtml(paperCanvasLevelLabel(paperItem))}</small>
         </div>
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
+          ${isDoubleCodedPaper(paperItem) ? `<em class="double-code-tag">Double-coded</em>` : ""}
           ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
           ${isDistanceLearningPaper(paperItem) ? `<em class="delivery-tag">Distance</em>` : ""}
           ${paperItem.points ? `<em class="points-tag">${escapeHtml(`${paperItem.points} pts`)}</em>` : ""}
@@ -1808,11 +1940,11 @@
   function renderPaperList() {
     const query = byId("paper-search")?.value.trim().toLowerCase() || "";
     const filtered = state.papers
-      .filter((item) => !query || `${item.code} ${item.title}`.toLowerCase().includes(query))
+      .filter((item) => !query || `${item.code} ${item.secondaryCode || ""} ${item.title}`.toLowerCase().includes(query))
       .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code));
     byId("paper-list").innerHTML = filtered.map((item) => `
-      <article class="paper-list-item ${item.id === selectedPaperId ? "active" : ""} ${item.requirement === "Compulsory" ? "compulsory" : ""}" data-select-paper="${item.id}">
-        <b>${escapeHtml(item.code)} · ${escapeHtml(item.requirement || "Elective")}</b>
+      <article class="paper-list-item ${item.id === selectedPaperId ? "active" : ""} ${item.requirement === "Compulsory" ? "compulsory" : ""} ${isDoubleCodedPaper(item) ? "double-coded" : ""}" data-select-paper="${item.id}">
+        <b>${escapeHtml(paperCodeLabel(item))} · ${escapeHtml(item.requirement || "Elective")}</b>
         <span>${escapeHtml(item.title)}</span>
         <small>${escapeHtml(paperMetaLabel(item))}</small>
       </article>
@@ -1829,6 +1961,27 @@
 
     const alignedPlos = supportedPlos(item);
     const assessments = paperAssessments(item.id);
+    const doubleCoded = isDoubleCodedPaper(item);
+    const cloHeading = doubleCoded ? "Course Learning Outcomes (First Code Side)" : "Course Learning Outcomes (CLOs)";
+    const activityHeading = doubleCoded ? "Learning Activities (First Code Side)" : "Learning Activities";
+    const secondaryLevelOptions = [
+      `<option value="" ${item.secondaryLevel ? "" : "selected"}>Not set</option>`,
+      ...paperLevelOptions().map((level) => `<option value="${level}" ${Number(item.secondaryLevel) === level ? "selected" : ""}>${level}</option>`)
+    ].join("");
+    const secondaryNzqfOptions = [
+      `<option value="" ${item.secondaryNzqfLevel ? "" : "selected"}>Not set</option>`,
+      ...nzqfLevelOptions().map((level) => `<option value="${level}" ${item.secondaryNzqfLevel === level ? "selected" : ""}>NZQCF Level ${level}</option>`)
+    ].join("");
+    const doubleCodeFields = doubleCoded ? `
+        <label class="field"><span>Second paper code</span><input data-paper-field="secondaryCode" value="${escapeHtml(item.secondaryCode || "")}" placeholder="e.g. ANTH302"></label>
+        <label class="field"><span>Second Otago paper code level</span><select data-paper-field="secondaryLevel">${secondaryLevelOptions}</select></label>
+        <label class="field"><span>Second NZQCF level</span><select data-paper-field="secondaryNzqfLevel">${secondaryNzqfOptions}</select></label>
+      ` : `
+        <div class="field wide double-code-hint">
+          <b>Double-coded paper?</b>
+          <span>Choose “Double-coded” above when one teaching paper carries two codes, levels, or enrolment identities.</span>
+        </div>
+      `;
     const roles = ROLE_OPTIONS.map((role) => `
       <button type="button" class="role-chip ${item.roles?.includes(role) ? "selected" : ""}"
         data-paper-role="${escapeHtml(role)}">${escapeHtml(role)}</button>
@@ -1839,18 +1992,24 @@
     const internalRows = alignedPlos.map((plo) => {
       const assessmentEvidence = assessments
         .filter((assessmentItem) => assessmentItem.evidence?.[plo.id])
-        .map((assessmentItem) => `${assessmentItem.name} (${assessmentItem.evidence[plo.id]})`)
+        .map((assessmentItem) => `${assessmentItem.name} (${assessmentItem.evidence[plo.id]}, ${assessmentSideLabel(assessmentItem)})`)
         .join("; ");
-      return `<article class="internal-map-card">
+      const secondaryLinks = doubleCoded ? `
+        <label><span>Second-side CLO connection</span><div class="editable-box" contenteditable="true" data-paper-secondary-plo-link="${plo.id}">${escapeHtml(item.secondaryPloLinks?.[plo.id] || "")}</div></label>
+        <label><span>Second-side learning activities connection</span><div class="editable-box" contenteditable="true" data-paper-secondary-activity-link="${plo.id}">${escapeHtml(item.secondaryActivityLinks?.[plo.id] || "")}</div></label>
+      ` : "";
+      return `<article class="internal-map-card ${doubleCoded ? "double-coded-map" : ""}">
         <div class="internal-map-plo"><b>${escapeHtml(plo.code)}</b><span>${escapeHtml(plo.level)} · ${escapeHtml(plo.title)}</span></div>
-        <label><span>CLO connection</span><div class="editable-box" contenteditable="true" data-paper-plo-link="${plo.id}">${escapeHtml(item.ploLinks?.[plo.id] || "")}</div></label>
-        <label><span>Learning activities connection</span><div class="editable-box" contenteditable="true" data-paper-activity-link="${plo.id}">${escapeHtml(item.activityLinks?.[plo.id] || "")}</div></label>
+        <label><span>${doubleCoded ? "First/shared CLO connection" : "CLO connection"}</span><div class="editable-box" contenteditable="true" data-paper-plo-link="${plo.id}">${escapeHtml(item.ploLinks?.[plo.id] || "")}</div></label>
+        <label><span>${doubleCoded ? "First/shared learning activities connection" : "Learning activities connection"}</span><div class="editable-box" contenteditable="true" data-paper-activity-link="${plo.id}">${escapeHtml(item.activityLinks?.[plo.id] || "")}</div></label>
+        ${secondaryLinks}
         <div><span>Assessment evidence</span><p>${escapeHtml(assessmentEvidence || "No assessment evidence mapped yet")}</p></div>
       </article>`;
     }).join("");
     const assessmentRows = assessments.map((assessmentItem) => `
       <tr data-assessment-row="${assessmentItem.id}">
         <td class="editable-cell" contenteditable="true" data-assessment-field="name">${escapeHtml(assessmentItem.name)}</td>
+        <td><select data-assessment-field="side" aria-label="Code side">${assessmentSideOptionsHtml(assessmentItem)}</select></td>
         <td><input type="number" min="1" max="${TEACHING_WEEKS}" data-assessment-field="week" value="${assessmentItem.week}" aria-label="Due week"></td>
         <td><input type="number" min="0" max="100" data-assessment-field="weight" value="${assessmentItem.weight}" aria-label="Weight percent"></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="mode">${escapeHtml(assessmentItem.mode)}</td>
@@ -1859,15 +2018,32 @@
         <td><button class="button danger-text" data-delete-assessment="${assessmentItem.id}">Delete</button></td>
       </tr>
     `).join("");
+    const doubleCodeSideSection = doubleCoded ? `
+        <section class="paper-section double-code-section">
+          <h3>Second Code Side ${helpButton("doubleCodedPaper", "Double-coded paper")}</h3>
+          <p class="section-help">Use this area when the second code has distinct CLOs, learning activities, assessment design, or expectations. The main boxes above remain the first code side or shared design.</p>
+          <div class="double-code-grid">
+            <label><span>Second-side CLOs</span><textarea class="large-textarea" data-paper-field="secondaryLearningOutcomes" placeholder="One second-side CLO per line">${escapeHtml(item.secondaryLearningOutcomes || "")}</textarea></label>
+            <div>${numberedItemPreview(item.secondaryLearningOutcomes, "CLO-S", "No second-side CLOs entered yet.")}</div>
+            <label><span>Second-side learning activities</span><textarea class="large-textarea" data-paper-field="secondaryLearningActivities" placeholder="One second-side learning activity per line">${escapeHtml(item.secondaryLearningActivities || "")}</textarea></label>
+            <div>${numberedItemPreview(item.secondaryLearningActivities, "LA-S", "No second-side learning activities entered yet.")}</div>
+            <label class="double-code-full"><span>Second-side assessment notes</span><textarea data-paper-field="secondaryAssessmentNotes" placeholder="Describe how assessment differs for the second code side, or note that assessment is shared.">${escapeHtml(item.secondaryAssessmentNotes || "")}</textarea></label>
+          </div>
+        </section>
+      ` : "";
 
     byId("paper-editor").innerHTML = `
       <div class="editor-heading">
-        <div><h2>${escapeHtml(item.code)} · ${escapeHtml(item.title)}</h2><p>Paper profile and internal alignment</p></div>
+        <div><h2>${escapeHtml(paperCodeLabel(item))} · ${escapeHtml(item.title)}</h2><p>Paper profile and internal alignment</p></div>
         <button class="button danger-text" data-delete-paper="${item.id}">Delete paper</button>
       </div>
       <div class="field-grid">
         <label class="field"><span>Paper code</span><input data-paper-field="code" value="${escapeHtml(item.code)}"></label>
         <label class="field"><span>Paper title</span><input data-paper-field="title" value="${escapeHtml(item.title)}"></label>
+        <label class="field"><span>Paper structure ${helpButton("doubleCodedPaper", "Paper structure")}</span><select data-paper-field="structure">
+          ${PAPER_STRUCTURES.map((structure) => `<option value="${structure}" ${normalisePaperStructure(item.structure) === structure ? "selected" : ""}>${structure}</option>`).join("")}
+        </select></label>
+        ${doubleCodeFields}
         <label class="field wide"><span>Teaching staff</span><textarea class="staff-textarea" data-paper-field="teachingStaff" placeholder="One name per line, or separate names with commas / semicolons">${escapeHtml(item.teachingStaff || "")}</textarea></label>
         <label class="field"><span>Points</span><input type="number" min="1" step="1" data-paper-field="points" value="${escapeHtml(item.points || "")}" placeholder="e.g. 15, 18, 30, 60"></label>
         <label class="field"><span>Otago paper code level</span><select data-paper-field="level">
@@ -1899,24 +2075,25 @@
           <textarea class="large-textarea" data-paper-field="description">${escapeHtml(item.description || "")}</textarea>
         </section>
         <section class="paper-section">
-          <h3>Course Learning Outcomes (CLOs) ${helpButton("clos", "Course learning outcomes")}</h3>
+          <h3>${escapeHtml(cloHeading)} ${helpButton("clos", "Course learning outcomes")}</h3>
           <p class="section-help">Enter one CLO per line. The app identifies them as CLO1, CLO2, CLO3 so they can be referenced in the alignment map.</p>
           <textarea class="large-textarea" data-paper-field="learningOutcomes">${escapeHtml(item.learningOutcomes)}</textarea>
           ${numberedItemPreview(item.learningOutcomes, "CLO", "No CLOs entered yet.")}
         </section>
         <section class="paper-section">
-          <h3>Learning Activities ${helpButton("learningActivities", "Learning activities")}</h3>
+          <h3>${escapeHtml(activityHeading)} ${helpButton("learningActivities", "Learning activities")}</h3>
           <p class="section-help">Enter one learning activity per line. The app identifies them as LA1, LA2, LA3.</p>
           <textarea class="large-textarea" data-paper-field="learningActivities">${escapeHtml(item.learningActivities)}</textarea>
           ${numberedItemPreview(item.learningActivities, "LA", "No learning activities entered yet.")}
         </section>
+        ${doubleCodeSideSection}
         <label class="paper-section"><h3>Key concepts / knowledge domains</h3><textarea data-paper-field="concepts">${escapeHtml(item.concepts)}</textarea></label>
         <section class="paper-section"><h3>Assessment ${helpButton("paperAssessment", "Paper assessment")}</h3>
           <p class="section-help">These rows are shared with the Assessments tab. Editing them here updates the programme assessment map.</p>
           <div class="mini-table-wrap">
             <table class="mini-table">
-              <thead><tr><th>Item</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role</th><th>PLOs</th><th></th></tr></thead>
-              <tbody>${assessmentRows || `<tr><td colspan="7">No assessment items yet.</td></tr>`}</tbody>
+              <thead><tr><th>Item</th><th>Code side</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role</th><th>PLOs</th><th></th></tr></thead>
+              <tbody>${assessmentRows || `<tr><td colspan="8">No assessment items yet.</td></tr>`}</tbody>
             </table>
           </div>
           <button class="button" data-add-paper-assessment="${item.id}">Add assessment for this paper</button>
@@ -1960,7 +2137,8 @@
     const rows = state.assessments.map((item) => {
       const paperItem = state.papers.find((paperValue) => paperValue.id === item.paperId);
       return `<tr data-assessment-row="${item.id}">
-        <td class="paper-cell"><b>${escapeHtml(paperItem?.code || "Unassigned")}</b></td>
+        <td class="paper-cell"><b>${escapeHtml(paperItem ? paperCodeLabel(paperItem) : "Unassigned")}</b></td>
+        <td><select data-assessment-field="side" aria-label="Code side">${assessmentSideOptionsHtml(item)}</select></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="name">${escapeHtml(item.name)}</td>
         <td><input type="number" min="1" max="${TEACHING_WEEKS}" data-assessment-field="week" value="${item.week}" aria-label="Due week"></td>
         <td><input type="number" min="0" max="100" data-assessment-field="weight" value="${item.weight}" aria-label="Weight percent"></td>
@@ -1971,7 +2149,7 @@
         <td><button class="button danger-text" data-delete-assessment="${item.id}">Delete</button></td>
       </tr>`;
     }).join("");
-    byId("assessment-table").innerHTML = `<thead><tr><th>Paper</th><th>Assessment item</th><th>Teaching week</th><th>Weight %</th><th>Assessment form / mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th><th></th></tr></thead><tbody>${rows}</tbody>`;
+    byId("assessment-table").innerHTML = `<thead><tr><th>Paper</th><th>Code side</th><th>Assessment item</th><th>Teaching week</th><th>Weight %</th><th>Assessment form / mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th><th></th></tr></thead><tbody>${rows}</tbody>`;
 
     const evidenceHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
     const evidenceRows = state.assessments.map((item) => {
@@ -1980,7 +2158,7 @@
         const value = item.evidence?.[plo.id] || "";
         return `<td class="evidence-cell" data-assessment-id="${item.id}" data-plo-id="${plo.id}" data-value="${value}">${value || "–"}</td>`;
       }).join("");
-      return `<tr><td>${escapeHtml(paperItem?.code || "")} · ${escapeHtml(item.name)}</td>${cells}</tr>`;
+      return `<tr><td>${escapeHtml(paperItem ? paperCodeLabel(paperItem) : "")} · ${escapeHtml(item.name)}<br><small>${escapeHtml(assessmentSideLabel(item))}</small></td>${cells}</tr>`;
     }).join("");
     byId("evidence-table").innerHTML = `<thead><tr><th>Assessment item</th>${evidenceHead}</tr></thead><tbody>${evidenceRows}</tbody>`;
 
@@ -1993,7 +2171,7 @@
       return `<div class="week"><b>W${week}</b>${items.map((item) => {
         const paperItem = state.papers.find((paperValue) => paperValue.id === item.paperId);
         const weightClass = item.weight >= 40 ? "heavy" : item.weight >= 25 ? "medium" : "";
-        return `<span class="assessment-block ${weightClass}" title="${escapeHtml(item.name)}">${escapeHtml(paperItem?.code || "")} ${item.weight}%</span>`;
+        return `<span class="assessment-block ${weightClass}" title="${escapeHtml(item.name)}">${escapeHtml(paperItem ? paperCodeLabel(paperItem) : "")} ${item.weight}%</span>`;
       }).join("")}</div>`;
     }).join("");
   }
@@ -2009,6 +2187,7 @@
           <article class="programme-evidence-item">
             <b>${escapeHtml(assessmentItem.name)}</b>
             <span>${escapeHtml(assessmentItem.purpose || "Assessment role to be clarified")}</span>
+            <small>${escapeHtml(assessmentSideLabel(assessmentItem))}</small>
             <small>${escapeHtml(assessmentPloSummary(assessmentItem))}</small>
           </article>
         `).join("");
@@ -2016,10 +2195,10 @@
         return `<article class="programme-evidence-card">
           <div class="programme-evidence-heading">
             <div>
-              <b>${escapeHtml(paperItem.code)}</b>
+              <b>${escapeHtml(paperCodeLabel(paperItem))}</b>
               <span>${escapeHtml(paperItem.title)}</span>
             </div>
-            <small>${escapeHtml(bandLabelForLevel(paperItem.level))} · ${directCount} direct evidence item${directCount === 1 ? "" : "s"}</small>
+            <small>${escapeHtml(paperCanvasLevelLabel(paperItem))} · ${directCount} direct evidence item${directCount === 1 ? "" : "s"}</small>
           </div>
           ${evidenceHtml || `<p class="muted-text">No assessment evidence mapped yet.</p>`}
         </article>`;
@@ -2075,12 +2254,17 @@
         summary.papers.push(paperItem);
         summary.points += Number(paperItem.points) || 0;
         summary.levels.add(bandLabelForLevel(paperItem.level));
+        if (isDoubleCodedPaper(paperItem) && paperItem.secondaryLevel) summary.levels.add(bandLabelForLevel(paperItem.secondaryLevel));
         summary.nzqcfLevels.add(paperItem.nzqfLevel ? `NZQCF ${paperItem.nzqfLevel}` : "NZQCF not set");
+        if (isDoubleCodedPaper(paperItem)) summary.nzqcfLevels.add(paperItem.secondaryNzqfLevel ? `NZQCF ${paperItem.secondaryNzqfLevel}` : "Second NZQCF not set");
         summary.requirements.add(paperItem.requirement || "Elective");
         summary.deliveryModes.add(normaliseDeliveryMode(paperItem.deliveryMode));
         (paperItem.roles || []).forEach((role) => summary.roles.add(role));
         summary.learningActivities.push(...numberedItems(paperItem.learningActivities, "LA").map((item) => item.text));
-        summary.assessmentPatterns.push(...paperAssessments(paperItem.id).map((item) => [item.mode, item.purpose].filter(Boolean).join(" / ")));
+        if (isDoubleCodedPaper(paperItem)) {
+          summary.learningActivities.push(...numberedItems(paperItem.secondaryLearningActivities, "LA-S").map((item) => item.text));
+        }
+        summary.assessmentPatterns.push(...paperAssessments(paperItem.id).map((item) => [item.mode, item.purpose, assessmentSideLabel(item)].filter(Boolean).join(" / ")));
       });
     });
     return [...summaries.values()].sort((a, b) =>
@@ -2134,7 +2318,7 @@
         <div class="staff-paper-list">
           ${summary.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code)).map((paperItem) => `
             <button type="button" data-open-paper="${paperItem.id}">
-              <b>${escapeHtml(paperItem.code)}</b>
+              <b>${escapeHtml(paperCodeLabel(paperItem))}</b>
               <span>${escapeHtml(paperItem.title)}</span>
               <small>${escapeHtml(paperPointsLabel(paperItem))} · ${escapeHtml(paperItem.requirement || "Elective")}</small>
             </button>
@@ -2157,7 +2341,7 @@
     }).join("");
 
     const missing = papersWithoutStaff.length
-      ? `<section class="staff-missing"><h3>Papers Without Teaching Staff</h3><p>${papersWithoutStaff.map((paperItem) => `${paperItem.code} · ${paperItem.title}`).join("; ")}</p></section>`
+      ? `<section class="staff-missing"><h3>Papers Without Teaching Staff</h3><p>${papersWithoutStaff.map((paperItem) => `${paperCodeLabel(paperItem)} · ${paperItem.title}`).join("; ")}</p></section>`
       : "";
     gridElement.innerHTML = `${cards}${missing}`;
   }
@@ -2170,10 +2354,10 @@
     const rows = state.plos.map((plo) => {
       const cells = levels.map(({ test }) => {
         const items = state.assessments
-          .filter((assessmentItem) => assessmentItem.evidence?.[plo.id] && test(state.papers.find((paperItem) => paperItem.id === assessmentItem.paperId)?.level || 0))
+          .filter((assessmentItem) => assessmentItem.evidence?.[plo.id] && assessmentOtagoLevels(assessmentItem).some((level) => test(level)))
           .map((assessmentItem) => {
             const paperItem = state.papers.find((paperValue) => paperValue.id === assessmentItem.paperId);
-            return `<span class="evidence-pill" data-value="${assessmentItem.evidence[plo.id]}">${escapeHtml(paperItem?.code || "Unassigned")} · ${escapeHtml(assessmentItem.name)} (${escapeHtml(assessmentItem.evidence[plo.id])})</span>`;
+            return `<span class="evidence-pill" data-value="${assessmentItem.evidence[plo.id]}">${escapeHtml(paperItem ? paperCodeLabel(paperItem) : "Unassigned")} · ${escapeHtml(assessmentItem.name)} (${escapeHtml(assessmentItem.evidence[plo.id])}, ${escapeHtml(assessmentSideLabel(assessmentItem))})</span>`;
           }).join("");
         return `<td>${items || `<span class="muted-text">No evidence mapped</span>`}</td>`;
       }).join("");
@@ -2244,7 +2428,7 @@
       notes.push({
         id: `program:${paperId}`,
         source: "Program mapping note",
-        title: paperItem ? `${paperItem.code} · ${paperItem.title}` : "Programme note",
+        title: paperItem ? `${paperCodeLabel(paperItem)} · ${paperItem.title}` : "Programme note",
         note,
         decision: ""
       });
@@ -2254,7 +2438,7 @@
         notes.push({
           id: `paper:${paperItem.id}`,
           source: "Paper diagnosis note",
-          title: `${paperItem.code} · ${paperItem.title}`,
+          title: `${paperCodeLabel(paperItem)} · ${paperItem.title}`,
           note: paperItem.diagnosisNote,
           decision: ""
         });
@@ -2266,7 +2450,7 @@
         notes.push({
           id: `assessment:${assessmentItem.id}`,
           source: "Assessment diagnosis note",
-          title: `${paperItem?.code || "Unassigned"} · ${assessmentItem.name}`,
+          title: `${paperItem ? paperCodeLabel(paperItem) : "Unassigned"} · ${assessmentItem.name}`,
           note: assessmentItem.diagnosisNote,
           decision: ""
         });
@@ -2360,6 +2544,8 @@
         state.papers.forEach((paperItem) => {
           delete paperItem.ploLinks?.[id];
           delete paperItem.activityLinks?.[id];
+          delete paperItem.secondaryPloLinks?.[id];
+          delete paperItem.secondaryActivityLinks?.[id];
         });
         state.assessments.forEach((assessmentItem) => delete assessmentItem.evidence[id]);
         renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); scheduleSave(); toast("PLO deleted");
@@ -2374,10 +2560,14 @@
       fields: [
         { name: "code", label: "Paper code", value: "", required: true },
         { name: "title", label: "Paper title", value: "", required: true },
+        { name: "structure", label: "Paper structure", value: "Single code", type: "select", options: PAPER_STRUCTURES },
+        { name: "secondaryCode", label: "Second paper code", value: "" },
         { name: "teachingStaff", label: "Teaching staff", value: "", type: "textarea" },
         { name: "points", label: "Points", value: "", type: "number" },
         { name: "level", label: "Otago paper code level", value: String(paperLevelOptions()[0] || 100), type: "select", options: paperLevelOptions().map(String) },
+        { name: "secondaryLevel", label: "Second Otago paper code level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...paperLevelOptions().map((level) => ({ value: String(level), label: String(level) }))] },
         { name: "nzqfLevel", label: "NZQCF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQCF Level ${level}` }))] },
+        { name: "secondaryNzqfLevel", label: "Second NZQCF level", value: "", type: "select", options: [{ value: "", label: "Not set" }, ...nzqfLevelOptions().map((level) => ({ value: String(level), label: `NZQCF Level ${level}` }))] },
         { name: "requirement", label: "Programme requirement", value: "Elective", type: "select", options: PAPER_REQUIREMENTS },
         { name: "deliveryMode", label: "Delivery mode", value: "On campus", type: "select", options: DELIVERY_MODES }
       ],
@@ -2388,6 +2578,10 @@
         const column = Math.max(0, bands.findIndex((band) => level >= band.min && level <= band.max));
         const columnWidth = Math.max(280, Math.floor(1360 / Math.max(1, bands.length)));
         const item = paper(id, values.code, values.title, level, 70 + column * columnWidth, 100 + (state.papers.length % 3) * 190, []);
+        item.structure = normalisePaperStructure(values.structure);
+        item.secondaryCode = values.secondaryCode || "";
+        item.secondaryLevel = Number(values.secondaryLevel) || "";
+        item.secondaryNzqfLevel = normaliseNzqfLevel(values.secondaryNzqfLevel);
         item.nzqfLevel = normaliseNzqfLevel(values.nzqfLevel);
         item.requirement = normaliseRequirement(values.requirement);
         item.deliveryMode = normaliseDeliveryMode(values.deliveryMode);
@@ -2420,8 +2614,9 @@
     openDialog({
       title: "Add Assessment Item",
       fields: [
-        { name: "paperId", label: "Paper", value: initialPaperId, type: "select", options: state.papers.map((item) => ({ value: item.id, label: `${item.code} · ${item.title}` })) },
+        { name: "paperId", label: "Paper", value: initialPaperId, type: "select", options: state.papers.map((item) => ({ value: item.id, label: `${paperCodeLabel(item)} · ${item.title}` })) },
         { name: "name", label: "Assessment name", value: "", required: true },
+        { name: "side", label: "Code side (for double-coded papers)", value: "Whole paper", type: "select", options: ASSESSMENT_SIDES },
         { name: "week", label: "Due week", value: "6", type: "number" },
         { name: "weight", label: "Weight %", value: "20", type: "number" },
         { name: "mode", label: "Mode / type", value: "" },
@@ -2430,7 +2625,9 @@
         { name: "diagnosisNote", label: "Diagnosis note", value: "", type: "textarea" }
       ],
       onSave(values) {
-        state.assessments.push(assessment(uid("assessment"), values.paperId, values.name, Number(values.week), Number(values.weight), values.mode, values.aiContext, {}, values.diagnosisNote, values.purpose));
+        const paperItem = state.papers.find((item) => item.id === values.paperId);
+        const side = isDoubleCodedPaper(paperItem) ? normaliseAssessmentSide(values.side) : "Whole paper";
+        state.assessments.push(assessment(uid("assessment"), values.paperId, values.name, Number(values.week), Number(values.weight), values.mode, values.aiContext, {}, values.diagnosisNote, values.purpose, side));
         renderPaperEditor(); renderAssessments(); renderStaffWorkload(); renderActions(); scheduleSave(); toast("Assessment added");
       }
     });
@@ -2686,7 +2883,7 @@
       const papers = summary.papers
         .slice()
         .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
-        .map((paperItem) => `${paperItem.code} ${paperPointsLabel(paperItem)}`)
+        .map((paperItem) => `${paperCodeLabel(paperItem)} ${paperPointsLabel(paperItem)}`)
         .join("; ");
       const learningActivities = uniqueTextList(summary.learningActivities, 4).join("; ");
       const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 4).join("; ");
@@ -2709,12 +2906,13 @@
     const reportDate = formatSnapshotTimestamp();
     const ploHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
     const alignmentRows = sortedPapers.map((paperItem) => `<tr>
-      <td><b>${escapeHtml(paperItem.code)}</b><br>${escapeHtml(paperItem.title)}<br><small>${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small></td>
+      <td><b>${escapeHtml(paperCodeLabel(paperItem))}</b><br>${escapeHtml(paperItem.title)}<br><small>${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small></td>
       ${state.plos.map((plo) => `<td>${escapeHtml(printableAlignmentValue(paperItem.id, plo.id))}</td>`).join("")}
       <td>${printableText(state.notes[paperItem.id] || "")}</td>
     </tr>`).join("");
     const assessmentRows = state.assessments.map((item) => `<tr>
       <td>${escapeHtml(paperLabel(item.paperId))}</td>
+      <td>${escapeHtml(assessmentSideLabel(item))}</td>
       <td>${escapeHtml(item.name)}</td>
       <td>${escapeHtml(item.week)}</td>
       <td>${escapeHtml(item.weight)}%</td>
@@ -2722,7 +2920,7 @@
       <td>${printableText(item.purpose || "")}</td>
       <td>${printableText(item.aiContext || "")}</td>
       <td>${printableText(item.diagnosisNote || "")}</td>
-    </tr>`).join("") || `<tr><td colspan="8">No assessment items.</td></tr>`;
+    </tr>`).join("") || `<tr><td colspan="9">No assessment items.</td></tr>`;
     const evidenceRows = state.assessments.map((item) => `<tr>
       <td>${escapeHtml(paperLabel(item.paperId))}<br><b>${escapeHtml(item.name)}</b></td>
       ${state.plos.map((plo) => `<td>${escapeHtml(item.evidence?.[plo.id] || "–")}</td>`).join("")}
@@ -2736,16 +2934,27 @@
     const paperSections = sortedPapers.map((paperItem) => {
       const alignedPlos = supportedPlos(paperItem);
       const relationships = paperNetworkConnections(paperItem)
-        .map(({ connection, other, isOutgoing }) => `${connectionTypeLabel(connection.type)}: ${relationshipDirectionLabel(connection, isOutgoing)} ${other ? `${other.code} · ${other.title}` : "unknown paper"}`)
+        .map(({ connection, other, isOutgoing }) => `${connectionTypeLabel(connection.type)}: ${relationshipDirectionLabel(connection, isOutgoing)} ${other ? `${paperCodeLabel(other)} · ${other.title}` : "unknown paper"}`)
         .join("\n");
       const assessments = paperAssessments(paperItem.id)
-        .map((item) => `${item.name}; week ${item.week}; ${item.weight}%; ${item.mode}; ${assessmentPloSummary(item)}`)
+        .map((item) => `${item.name}; ${assessmentSideLabel(item)}; week ${item.week}; ${item.weight}%; ${item.mode}; ${assessmentPloSummary(item)}`)
         .join("\n");
+      const secondSideInfo = isDoubleCodedPaper(paperItem)
+        ? `
+            <tr><th>Second paper code</th><td>${escapeHtml(paperItem.secondaryCode || "Not set")}</td><th>Second Otago level</th><td>${escapeHtml(paperItem.secondaryLevel || "Not set")}</td></tr>
+            <tr><th>Second NZQCF level</th><td colspan="3">${escapeHtml(paperItem.secondaryNzqfLevel || "Not set")}</td></tr>
+            <tr><th>Second-side CLOs</th><td colspan="3">${printableText(paperItem.secondaryLearningOutcomes || "")}</td></tr>
+            <tr><th>Second-side learning activities</th><td colspan="3">${printableText(paperItem.secondaryLearningActivities || "")}</td></tr>
+            <tr><th>Second-side assessment notes</th><td colspan="3">${printableText(paperItem.secondaryAssessmentNotes || "")}</td></tr>
+          `
+        : "";
       return `<section class="paper-print-block">
-        <h3>${escapeHtml(paperItem.code)} · ${escapeHtml(paperItem.title)}</h3>
+        <h3>${escapeHtml(paperCodeLabel(paperItem))} · ${escapeHtml(paperItem.title)}</h3>
         <table>
           <tbody>
+            <tr><th>Paper structure</th><td colspan="3">${escapeHtml(normalisePaperStructure(paperItem.structure))}</td></tr>
             <tr><th>Otago paper code level</th><td>${escapeHtml(paperItem.level)}</td><th>NZQCF level</th><td>${escapeHtml(paperItem.nzqfLevel || "Not set")}</td></tr>
+            ${secondSideInfo}
             <tr><th>Points</th><td>${escapeHtml(paperItem.points || "Not set")}</td><th>Requirement</th><td>${escapeHtml(paperItem.requirement || "Elective")}</td></tr>
             <tr><th>Delivery mode</th><td colspan="3">${escapeHtml(normaliseDeliveryMode(paperItem.deliveryMode))}</td></tr>
             <tr><th>Review status</th><td colspan="3">${escapeHtml(paperItem.status || "")}</td></tr>
@@ -2813,7 +3022,7 @@
         <table><thead><tr><th>Assessment item</th>${ploHead}</tr></thead><tbody>${evidenceRows}</tbody></table>
 
         <h2>Assessment Items</h2>
-        <table><thead><tr><th>Paper</th><th>Item</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th></tr></thead><tbody>${assessmentRows}</tbody></table>
+        <table><thead><tr><th>Paper</th><th>Code side</th><th>Item</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th></tr></thead><tbody>${assessmentRows}</tbody></table>
 
         <h2>Paper Details</h2>
         ${paperSections || "<p>No paper details entered.</p>"}
@@ -3100,7 +3309,7 @@
 
   function paperLabel(paperId) {
     const paperItem = state.papers.find((item) => item.id === paperId);
-    return paperItem ? `${paperItem.code} · ${paperItem.title}` : "Unknown paper";
+    return paperItem ? `${paperCodeLabel(paperItem)} · ${paperItem.title}` : "Unknown paper";
   }
 
   function assessmentLabel(assessmentId) {
@@ -3120,10 +3329,15 @@
     if (!item) return false;
     const field = paperField.dataset.paperField;
     let nextValue;
-    if (field === "level") {
+    if (field === "level" || field === "secondaryLevel") {
       nextValue = Number(paperField.value);
+      if (field === "secondaryLevel" && !paperField.value) nextValue = "";
     } else if (field === "nzqfLevel") {
       nextValue = normaliseNzqfLevel(paperField.value);
+    } else if (field === "secondaryNzqfLevel") {
+      nextValue = normaliseNzqfLevel(paperField.value);
+    } else if (field === "structure") {
+      nextValue = normalisePaperStructure(paperField.value);
     } else if (field === "requirement") {
       nextValue = normaliseRequirement(paperField.value);
     } else if (field === "deliveryMode") {
@@ -3135,12 +3349,32 @@
     }
     if (item[field] === nextValue) return false;
     item[field] = nextValue;
-    if (["code", "title", "status", "requirement", "deliveryMode", "nzqfLevel", "level", "points"].includes(field)) deferRender("paperList");
-    if (["code", "title", "level", "nzqfLevel", "requirement", "deliveryMode", "points"].includes(field)) {
+    if (["code", "title", "status", "structure", "secondaryCode", "requirement", "deliveryMode", "nzqfLevel", "secondaryNzqfLevel", "level", "secondaryLevel", "points"].includes(field)) deferRender("paperList");
+    if (["code", "title", "structure", "secondaryCode", "level", "secondaryLevel", "nzqfLevel", "secondaryNzqfLevel", "requirement", "deliveryMode", "points"].includes(field)) {
       deferRender("mapping", "canvas", "assessments");
     }
-    if (["teachingStaff", "points", "level", "nzqfLevel", "requirement", "deliveryMode", "learningActivities"].includes(field)) deferRender("staff");
+    if (["structure", "secondaryCode", "teachingStaff", "points", "level", "secondaryLevel", "nzqfLevel", "secondaryNzqfLevel", "requirement", "deliveryMode", "learningActivities", "secondaryLearningActivities"].includes(field)) deferRender("staff");
+    if (["structure", "secondaryCode", "secondaryLevel", "secondaryNzqfLevel"].includes(field)) deferRender("paperEditor");
     if (field === "diagnosisNote" || field === "agreedAction") deferRender("actions");
+    return true;
+  }
+
+  function applyAssessmentFieldValue(assessmentField) {
+    const row = assessmentField.closest("[data-assessment-row]");
+    const item = state.assessments.find((assessmentItem) => assessmentItem.id === row?.dataset.assessmentRow);
+    if (!item) return false;
+    const field = assessmentField.dataset.assessmentField;
+    const rawValue = assessmentField.matches("input, textarea, select") ? assessmentField.value : assessmentField.textContent.trim();
+    let nextValue = ["week", "weight"].includes(field) ? Number(rawValue) : rawValue;
+    if (field === "side") {
+      const paperItem = state.papers.find((paperValue) => paperValue.id === item.paperId);
+      nextValue = isDoubleCodedPaper(paperItem) ? normaliseAssessmentSide(rawValue) : "Whole paper";
+    }
+    if (item[field] === nextValue) return false;
+    item[field] = nextValue;
+    if (["mode", "purpose", "side"].includes(field)) deferRender("staff");
+    if (field === "side") deferRender("paperEditor", "assessments");
+    if (field === "diagnosisNote") deferRender("actions");
     return true;
   }
 
@@ -3154,6 +3388,8 @@
       "[data-note-paper]",
       "[data-paper-plo-link]",
       "[data-paper-activity-link]",
+      "[data-paper-secondary-plo-link]",
+      "[data-paper-secondary-activity-link]",
       "[data-paper-field]",
       "[data-assessment-field]",
       "[data-staff-profile-field]",
@@ -3177,6 +3413,14 @@
     if (element.matches("[data-paper-activity-link]")) {
       const plo = state.plos.find((item) => item.id === element.dataset.paperActivityLink);
       return { key: `paper-activity-link:${selectedPaperId}:${element.dataset.paperActivityLink}`, label: `${paperLabel(selectedPaperId)} learning activity link ${plo?.code || ""}`.trim(), value: valueForElement(element) };
+    }
+    if (element.matches("[data-paper-secondary-plo-link]")) {
+      const plo = state.plos.find((item) => item.id === element.dataset.paperSecondaryPloLink);
+      return { key: `paper-secondary-plo-link:${selectedPaperId}:${element.dataset.paperSecondaryPloLink}`, label: `${paperLabel(selectedPaperId)} second-side PLO/CLO link ${plo?.code || ""}`.trim(), value: valueForElement(element) };
+    }
+    if (element.matches("[data-paper-secondary-activity-link]")) {
+      const plo = state.plos.find((item) => item.id === element.dataset.paperSecondaryActivityLink);
+      return { key: `paper-secondary-activity-link:${selectedPaperId}:${element.dataset.paperSecondaryActivityLink}`, label: `${paperLabel(selectedPaperId)} second-side learning activity link ${plo?.code || ""}`.trim(), value: valueForElement(element) };
     }
     if (element.matches("[data-paper-field]")) {
       const field = element.dataset.paperField;
@@ -3485,6 +3729,26 @@
       return scheduleSave();
     }
 
+    const paperSecondaryPloLink = event.target.closest("[data-paper-secondary-plo-link]");
+    if (paperSecondaryPloLink) {
+      if (!canEditWorkspace(false)) return;
+      const item = state.papers.find((paperItem) => paperItem.id === selectedPaperId);
+      if (!item) return;
+      item.secondaryPloLinks ||= {};
+      item.secondaryPloLinks[paperSecondaryPloLink.dataset.paperSecondaryPloLink] = paperSecondaryPloLink.textContent.trim();
+      return scheduleSave();
+    }
+
+    const paperSecondaryActivityLink = event.target.closest("[data-paper-secondary-activity-link]");
+    if (paperSecondaryActivityLink) {
+      if (!canEditWorkspace(false)) return;
+      const item = state.papers.find((paperItem) => paperItem.id === selectedPaperId);
+      if (!item) return;
+      item.secondaryActivityLinks ||= {};
+      item.secondaryActivityLinks[paperSecondaryActivityLink.dataset.paperSecondaryActivityLink] = paperSecondaryActivityLink.textContent.trim();
+      return scheduleSave();
+    }
+
     const paperField = event.target.closest("[data-paper-field]");
     if (paperField) {
       if (!canEditWorkspace(false)) return;
@@ -3494,15 +3758,7 @@
     const assessmentField = event.target.closest("[data-assessment-field]");
     if (assessmentField) {
       if (!canEditWorkspace(false)) return;
-      const row = assessmentField.closest("[data-assessment-row]");
-      const item = state.assessments.find((assessmentItem) => assessmentItem.id === row?.dataset.assessmentRow);
-      if (!item) return;
-      const field = assessmentField.dataset.assessmentField;
-      const value = assessmentField.matches("input, textarea, select") ? assessmentField.value : assessmentField.textContent.trim();
-      item[field] = ["week","weight"].includes(field) ? Number(value) : value;
-      if (["mode", "purpose"].includes(field)) deferRender("staff");
-      if (field === "diagnosisNote") deferRender("actions");
-      return scheduleSave();
+      if (applyAssessmentFieldValue(assessmentField)) return scheduleSave();
     }
 
     const staffNote = event.target.closest("[data-staff-note]");
@@ -3576,16 +3832,19 @@
       return;
     }
 
-    if (event.target.closest("[data-assessment-field]")) {
+    const changedAssessmentField = event.target.closest("[data-assessment-field]");
+    if (changedAssessmentField) {
+      const changed = canEditWorkspace(false) ? applyAssessmentFieldValue(changedAssessmentField) : false;
       deferRender("paperEditor", "assessments");
-      const field = event.target.closest("[data-assessment-field]")?.dataset.assessmentField;
-      if (["mode", "purpose"].includes(field)) deferRender("staff");
+      const field = changedAssessmentField.dataset.assessmentField;
+      if (["mode", "purpose", "side"].includes(field)) deferRender("staff");
+      if (changed) scheduleSave();
     }
     const changedPaperField = event.target.closest("[data-paper-field]");
     if (changedPaperField && changedPaperField.matches("select") && applyPaperFieldValue(changedPaperField)) {
       scheduleSave();
     }
-    if (changedPaperField && ["learningOutcomes", "learningActivities"].includes(changedPaperField.dataset.paperField)) {
+    if (changedPaperField && ["learningOutcomes", "learningActivities", "secondaryLearningOutcomes", "secondaryLearningActivities"].includes(changedPaperField.dataset.paperField)) {
       deferRender("paperEditor");
     }
     if (event.target.closest("[data-note-action-field]") || event.target.closest("[data-standalone-action-field]")) {
