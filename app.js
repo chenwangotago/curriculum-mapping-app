@@ -123,6 +123,49 @@
     }
   };
 
+  const HELP_TEXT = {
+    programmeSettings: "Set the programme name, version, workshop date, participants, and the workspace title used in links and PDFs.",
+    templateWording: "Admin-only. Customise headings and terminology for this programme workspace before or during use.",
+    createPrivateLink: "Create a cloud workspace for one programme. After it is created, use edit/view links for the team and keep the admin link for yourself.",
+    copyAdminLink: "Keep this link private. It can edit template wording and manage share links for this workspace.",
+    copyEditLink: "Share this with people who should add or change mapping content during the workshop.",
+    copyViewLink: "Share this with reviewers who should read the workspace and add comments without changing the mapping.",
+    sessionName: "Enter your name so comments, edit-presence warnings, and the admin log can show who contributed.",
+    comments: "Use comments for review feedback that should not directly change the team's mapping.",
+    adminLog: "Admin-only record of recent edits, comments, and key changes. It helps trace who changed what and when.",
+    saveVersion: "Save a restorable version inside this workspace. It is not a downloaded file; use Export JSON for a portable backup.",
+    versions: "Open saved versions and restore an earlier point if the team needs to go back.",
+    newWorkspace: "Start a separate workspace for another programme. This creates a new programme URL when you are already in cloud mode.",
+    importJson: "Import a JSON backup into the current dashboard. Use carefully because it replaces the current workspace content.",
+    exportJson: "Download a complete JSON backup for archiving, migration, or recovering the workspace later.",
+    printPdf: "Prepare a printable report. In the browser print dialog, choose landscape and Save as PDF when needed.",
+    addPlo: "Add a new programme learning outcome. The PLO order here also controls the order used in mapping tables.",
+    addPaper: "Add a new paper/course to the programme map. You can complete details later in the Papers tab.",
+    plos: "Click any PLO card to edit its code, title, or description.",
+    alignment: "Click each cell to cycle through blank, I, D, and M. Use this to discuss how each paper supports each PLO.",
+    network: "Drag paper cards to shape possible student journeys. Choose a relationship mode, then click two papers to draw or remove a line.",
+    networkModes: "Move = drag cards. Required/Recommended/Related = click the earlier paper, then the next paper. Remove line = click the two connected papers.",
+    boardGrouping: "Switch whether the board groups papers by Otago paper code level or by NZQCF level.",
+    assessmentEvidence: "Click cells to map assessment evidence to PLOs: P means partial evidence, D means direct evidence.",
+    assessmentItems: "Enter assessment item, week, weight, mode, role, AI-ready note, and diagnosis note. These rows are shared with Paper Details.",
+    assessmentSummary: "Use this to check whether each PLO has assessment evidence across the programme levels.",
+    programmeEvidence: "Shows which assessment items can contribute to a programme-level picture of student progress.",
+    studentWorkload: "Shows assessment timing across 12 teaching weeks. Heavier weighted items appear more strongly.",
+    paperDetails: "Use this page to complete one paper profile and check its internal alignment from PLO to CLO, activities, and assessment.",
+    paperRoles: "Select one or more roles for the paper, such as core spine, gateway, service paper, methods, or capstone.",
+    paperPloLinks: "This shows which PLOs the paper supports based on the Program alignment table.",
+    paperNetwork: "These relationships come from the Program network board. You can adjust type, direction, or related paper here.",
+    paperDescription: "Use this for the official or locally agreed paper description.",
+    clos: "Enter one Course Learning Outcome per line. The app labels them CLO1, CLO2, and so on.",
+    learningActivities: "Enter one activity per line. The app labels them LA1, LA2, and so on for internal alignment.",
+    paperAssessment: "These assessment rows are shared with the Assessment tab. Editing here updates the programme assessment map.",
+    internalAlignment: "Map how this paper connects PLOs to CLOs, then to learning activities and assessment evidence.",
+    diagnosisNote: "Use diagnosis notes for issues, decisions, or questions that should carry through to the Actions page.",
+    staffSummary: "Staff cards are generated from Teaching staff entered in Papers and sorted by the number of papers attached.",
+    staffProfile: "Use staff profile fields to capture research interests, teaching strengths, assessment experience, and student cohorts.",
+    actions: "Diagnosis notes from Program, Papers, Staff, and Assessments collect here so the team can turn them into decisions and actions."
+  };
+
   const sampleData = {
     meta: {
       programme: "Example Humanities Programme",
@@ -234,6 +277,7 @@
   let focusedEdit = null;
   let activePresenceField = "";
   let reviewBackendAvailable = true;
+  let activeHelpButton = null;
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -1374,6 +1418,53 @@
       .replaceAll("'", "&#039;");
   }
 
+  function helpButton(key, label = "Help") {
+    return `<button class="help-tip" type="button" data-help-key="${escapeHtml(key)}" aria-label="${escapeHtml(label)} help" title="Show help">?</button>`;
+  }
+
+  function closeHelpPopover() {
+    const popover = byId("help-popover");
+    if (!popover) return;
+    popover.hidden = true;
+    if (activeHelpButton) activeHelpButton.setAttribute("aria-expanded", "false");
+    activeHelpButton = null;
+  }
+
+  function toggleHelpPopover(button) {
+    const key = button.dataset.helpKey;
+    const text = HELP_TEXT[key];
+    if (!text) return;
+    if (activeHelpButton === button && !byId("help-popover")?.hidden) {
+      closeHelpPopover();
+      return;
+    }
+
+    const popover = byId("help-popover");
+    const content = byId("help-popover-text");
+    if (!popover || !content) return;
+    if (activeHelpButton) activeHelpButton.setAttribute("aria-expanded", "false");
+    content.textContent = text;
+    popover.hidden = false;
+    activeHelpButton = button;
+    button.setAttribute("aria-expanded", "true");
+
+    requestAnimationFrame(() => {
+      const rect = button.getBoundingClientRect();
+      const popoverRect = popover.getBoundingClientRect();
+      const margin = 12;
+      const left = Math.min(
+        window.innerWidth - popoverRect.width - margin,
+        Math.max(margin, rect.left)
+      );
+      let top = rect.bottom + 8;
+      if (top + popoverRect.height > window.innerHeight - margin) {
+        top = Math.max(margin, rect.top - popoverRect.height - 8);
+      }
+      popover.style.left = `${left}px`;
+      popover.style.top = `${top}px`;
+    });
+  }
+
   function setText(id, value) {
     const element = byId(id);
     if (element) element.textContent = value;
@@ -1795,32 +1886,32 @@
         <label class="field"><span>Review status</span><select data-paper-field="status">
           ${["Draft","In discussion","Ready"].map((status) => `<option ${item.status === status ? "selected" : ""}>${status}</option>`).join("")}
         </select></label>
-        <div class="field wide"><span>Programme role / contribution</span><div class="role-options">${roles}</div></div>
-        <div class="field wide"><span>Supported Programme Learning Outcomes</span><div class="plo-badge-grid">${ploBadges}</div></div>
-        <div class="field wide"><span>Network relationships from Program page</span>
+        <div class="field wide"><span>Programme role / contribution ${helpButton("paperRoles", "Programme role")}</span><div class="role-options">${roles}</div></div>
+        <div class="field wide"><span>Supported Programme Learning Outcomes ${helpButton("paperPloLinks", "Supported PLOs")}</span><div class="plo-badge-grid">${ploBadges}</div></div>
+        <div class="field wide"><span>Network relationships from Program page ${helpButton("paperNetwork", "Paper network relationships")}</span>
           ${paperNetworkHtml(item)}
         </div>
       </div>
       <div class="paper-detail-stack">
         <section class="paper-section">
-          <h3>Paper Description</h3>
+          <h3>Paper Description ${helpButton("paperDescription", "Paper description")}</h3>
           <p class="section-help">Add the official or locally agreed paper description used for programme approval, handbook, or course design documentation.</p>
           <textarea class="large-textarea" data-paper-field="description">${escapeHtml(item.description || "")}</textarea>
         </section>
         <section class="paper-section">
-          <h3>Course Learning Outcomes (CLOs)</h3>
+          <h3>Course Learning Outcomes (CLOs) ${helpButton("clos", "Course learning outcomes")}</h3>
           <p class="section-help">Enter one CLO per line. The app identifies them as CLO1, CLO2, CLO3 so they can be referenced in the alignment map.</p>
           <textarea class="large-textarea" data-paper-field="learningOutcomes">${escapeHtml(item.learningOutcomes)}</textarea>
           ${numberedItemPreview(item.learningOutcomes, "CLO", "No CLOs entered yet.")}
         </section>
         <section class="paper-section">
-          <h3>Learning Activities</h3>
+          <h3>Learning Activities ${helpButton("learningActivities", "Learning activities")}</h3>
           <p class="section-help">Enter one learning activity per line. The app identifies them as LA1, LA2, LA3.</p>
           <textarea class="large-textarea" data-paper-field="learningActivities">${escapeHtml(item.learningActivities)}</textarea>
           ${numberedItemPreview(item.learningActivities, "LA", "No learning activities entered yet.")}
         </section>
         <label class="paper-section"><h3>Key concepts / knowledge domains</h3><textarea data-paper-field="concepts">${escapeHtml(item.concepts)}</textarea></label>
-        <section class="paper-section"><h3>Assessment</h3>
+        <section class="paper-section"><h3>Assessment ${helpButton("paperAssessment", "Paper assessment")}</h3>
           <p class="section-help">These rows are shared with the Assessments tab. Editing them here updates the programme assessment map.</p>
           <div class="mini-table-wrap">
             <table class="mini-table">
@@ -1832,12 +1923,12 @@
         </section>
       </div>
       <section class="internal-map">
-        <h3>Internal Alignment Map</h3>
+        <h3>Internal Alignment Map ${helpButton("internalAlignment", "Internal alignment map")}</h3>
         <p>Map the chain from PLO → CLO → learning activity → assessment evidence for this paper.</p>
         <div class="internal-map-cards">${internalRows || `<div class="empty-state compact">Add I/D/M alignment in the Program page to generate this map.</div>`}</div>
       </section>
       <section class="paper-section diagnosis-section">
-        <h3>Diagnosis Note</h3>
+        <h3>Diagnosis Note ${helpButton("diagnosisNote", "Diagnosis note")}</h3>
         <p class="section-help">Use this only for issues or questions that should carry through to the Actions page.</p>
         <label><span>Diagnosis note</span><textarea data-paper-field="diagnosisNote">${escapeHtml(item.diagnosisNote || "")}</textarea></label>
       </section>`;
@@ -2054,6 +2145,7 @@
           <div><b>Learning activity / pedagogy signals</b><p>${escapeHtml(learningActivities.join("; ") || "No learning activities entered yet.")}</p></div>
           <div><b>Assessment patterns</b><p>${escapeHtml(assessmentPatterns.join("; ") || "No assessment mode entered yet.")}</p></div>
         </div>
+        <div class="staff-profile-heading"><b>Staff profile</b>${helpButton("staffProfile", "Staff profile")}</div>
         <div class="staff-profile-grid">
           <label><span>Research areas / interests</span><textarea data-staff-profile-field="researchInterests" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. public health policy; infectious disease; health equity">${escapeHtml(profile.researchInterests)}</textarea></label>
           <label><span>Teaching approaches / strengths</span><textarea data-staff-profile-field="teachingApproaches" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. case-based teaching; problem-based learning; community-engaged learning">${escapeHtml(profile.teachingApproaches)}</textarea></label>
@@ -3209,6 +3301,17 @@
   }
 
   document.addEventListener("click", (event) => {
+    const helpClose = event.target.closest("[data-help-close]");
+    if (helpClose) return closeHelpPopover();
+
+    const helpTip = event.target.closest("[data-help-key]");
+    if (helpTip) {
+      event.preventDefault();
+      return toggleHelpPopover(helpTip);
+    }
+
+    if (!event.target.closest("#help-popover")) closeHelpPopover();
+
     const tab = event.target.closest(".tab");
     if (tab) return switchView(tab.dataset.view);
 
@@ -3327,6 +3430,10 @@
 
     const actionCard = event.target.closest("[data-action-id]");
     if (actionCard) return editAction(actionCard.dataset.actionId);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeHelpPopover();
   });
 
   document.addEventListener("pointerdown", (event) => {

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=29">
+  <link rel="stylesheet" href="styles.css?v=30">
 </head>
 <body>
   <header class="app-header">
@@ -20,20 +20,35 @@
     </div>
     <div class="header-actions">
       <button class="button ghost" id="programme-settings-button">Programme settings</button>
+      <button class="help-tip" type="button" data-help-key="programmeSettings" aria-label="Programme settings help">?</button>
       <button class="button ghost" id="wording-settings-button">Template wording</button>
+      <button class="help-tip" type="button" data-help-key="templateWording" aria-label="Template wording help">?</button>
       <button class="button ghost" id="create-cloud-workspace-button">Create private link</button>
+      <button class="help-tip" type="button" data-help-key="createPrivateLink" aria-label="Create private link help">?</button>
       <button class="button ghost" id="copy-admin-link-button" hidden>Copy admin link</button>
+      <button class="help-tip" type="button" data-help-key="copyAdminLink" aria-label="Admin link help">?</button>
       <button class="button ghost" id="copy-edit-link-button" hidden>Copy edit link</button>
+      <button class="help-tip" type="button" data-help-key="copyEditLink" aria-label="Edit link help">?</button>
       <button class="button ghost" id="copy-view-link-button" hidden>Copy view link</button>
+      <button class="help-tip" type="button" data-help-key="copyViewLink" aria-label="View link help">?</button>
       <button class="button ghost" id="session-name-button" hidden>My name</button>
+      <button class="help-tip" type="button" data-help-key="sessionName" aria-label="My name help">?</button>
       <button class="button ghost" id="comments-button" hidden>Comments</button>
+      <button class="help-tip" type="button" data-help-key="comments" aria-label="Comments help">?</button>
       <button class="button ghost" id="activity-log-button" hidden>Admin log</button>
+      <button class="help-tip" type="button" data-help-key="adminLog" aria-label="Admin log help">?</button>
       <button class="button ghost" id="save-snapshot-button">Save version</button>
+      <button class="help-tip" type="button" data-help-key="saveVersion" aria-label="Save version help">?</button>
       <button class="button ghost" id="versions-button">Versions</button>
+      <button class="help-tip" type="button" data-help-key="versions" aria-label="Versions help">?</button>
       <button class="button ghost" id="new-template-button">New workspace</button>
+      <button class="help-tip" type="button" data-help-key="newWorkspace" aria-label="New workspace help">?</button>
       <button class="button ghost" id="import-button">Import JSON</button>
+      <button class="help-tip" type="button" data-help-key="importJson" aria-label="Import JSON help">?</button>
       <button class="button ghost" id="export-button">Export JSON</button>
+      <button class="help-tip" type="button" data-help-key="exportJson" aria-label="Export JSON help">?</button>
       <button class="button primary" id="print-button">Print / PDF</button>
+      <button class="help-tip" type="button" data-help-key="printPdf" aria-label="Print PDF help">?</button>
       <input id="import-file" type="file" accept="application/json,.json" hidden>
     </div>
   </header>
@@ -55,7 +70,9 @@
         </div>
         <div class="view-actions">
           <button class="button" id="add-plo-button">Add PLO</button>
+          <button class="help-tip" type="button" data-help-key="addPlo" aria-label="Add PLO help">?</button>
           <button class="button" id="add-paper-button">Add paper</button>
+          <button class="help-tip" type="button" data-help-key="addPaper" aria-label="Add paper help">?</button>
         </div>
       </div>
 
@@ -64,6 +81,7 @@
           <div>
             <span class="step">1</span>
             <h3 id="plo-section-title">Programme Learning Outcomes</h3>
+            <button class="help-tip" type="button" data-help-key="plos" aria-label="Programme Learning Outcomes help">?</button>
             <p id="plo-section-help">Click a PLO to edit it. Dragging is not needed here; the order sets the table order.</p>
           </div>
         </div>
@@ -75,6 +93,7 @@
           <div>
             <span class="step">2</span>
             <h3 id="alignment-section-title">Alignment Mapping Exercise</h3>
+            <button class="help-tip" type="button" data-help-key="alignment" aria-label="Alignment mapping help">?</button>
             <p id="alignment-section-help">Click each PLO cell to cycle through blank → Introduced → Developed → Mastered.</p>
           </div>
           <div class="legend" id="alignment-legend">
@@ -93,6 +112,7 @@
           <div>
             <span class="step">3</span>
             <h3 id="pathways-section-title">Student Pathways & Programme Network</h3>
+            <button class="help-tip" type="button" data-help-key="network" aria-label="Programme network help">?</button>
             <p id="pathways-section-help">Drag papers freely across levels to make possible journeys visible. Use lines to show required, recommended, or related movement between papers.</p>
           </div>
         </div>
@@ -105,6 +125,7 @@
               <button class="mode-button" data-mode="recommended">Recommended progression</button>
               <button class="mode-button" data-mode="related">Related</button>
               <button class="mode-button danger-mode" data-mode="remove">Remove line</button>
+              <button class="help-tip" type="button" data-help-key="networkModes" aria-label="Network mode help">?</button>
             </div>
             <label class="level-mode-label">
               <span>Board grouping</span>
@@ -113,6 +134,7 @@
                 <option value="nzqf">NZQCF level</option>
               </select>
             </label>
+            <button class="help-tip" type="button" data-help-key="boardGrouping" aria-label="Board grouping help">?</button>
             <span id="canvas-status">Drag papers freely. Patterns and journeys emerge from where the team places papers.</span>
           </div>
           <div class="pathway-canvas" id="pathway-canvas">
@@ -153,11 +175,13 @@
           <p id="assessment-view-help">Review programme-level assessment evidence, assessment roles, student progress, workload, and AI-readiness across the programme.</p>
         </div>
         <button class="button" id="add-assessment-button">Add assessment item</button>
+        <button class="help-tip" type="button" data-help-key="assessmentItems" aria-label="Add assessment help">?</button>
       </div>
 
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="assessment-evidence-title">PLO × Assessment Evidence</h3>
+          <button class="help-tip" type="button" data-help-key="assessmentEvidence" aria-label="Assessment evidence help">?</button>
           <p id="assessment-evidence-help">Click a cell to cycle through blank → Partial evidence → Direct evidence.</p>
         </div>
         <div class="table-wrap">
@@ -168,6 +192,7 @@
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="assessment-items-title">Assessment Items</h3>
+          <button class="help-tip" type="button" data-help-key="assessmentItems" aria-label="Assessment items help">?</button>
           <p id="assessment-items-help">Assessment details can be entered here or from the relevant paper page. The assessed PLOs are carried through from the evidence table.</p>
         </div>
         <div class="metric-grid" id="assessment-metrics"></div>
@@ -179,6 +204,7 @@
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="assessment-summary-title">PLO Evidence Summary By Level</h3>
+          <button class="help-tip" type="button" data-help-key="assessmentSummary" aria-label="PLO evidence summary help">?</button>
           <p id="assessment-summary-help">Use this to see where each programme learning outcome is directly or partially assessed across 100-, 200-, and 300-level papers.</p>
         </div>
         <div class="table-wrap">
@@ -189,6 +215,7 @@
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="programme-evidence-title">Programme Evidence of Learning</h3>
+          <button class="help-tip" type="button" data-help-key="programmeEvidence" aria-label="Programme evidence help">?</button>
           <p id="programme-evidence-help">Shows what evidence each paper contributes to a programme-level picture of student progress and capability development.</p>
         </div>
         <div class="programme-evidence-grid" id="programme-evidence-grid"></div>
@@ -197,6 +224,7 @@
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="student-workload-title">Student Workload</h3>
+          <button class="help-tip" type="button" data-help-key="studentWorkload" aria-label="Student workload help">?</button>
           <p id="student-workload-help">Assessment items are placed by due week. Higher-weight items are shown more strongly.</p>
         </div>
         <div class="timeline" id="assessment-timeline"></div>
@@ -210,6 +238,7 @@
           <p id="paper-view-help">Review each paper's programme contribution, course learning outcomes, learning activities, assessment, and internal alignment.</p>
         </div>
         <button class="button" id="paper-view-add-button">Add paper</button>
+        <button class="help-tip" type="button" data-help-key="paperDetails" aria-label="Paper details help">?</button>
       </div>
 
       <div class="paper-layout">
@@ -239,6 +268,7 @@
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="staff-summary-title">Staff Summary</h3>
+          <button class="help-tip" type="button" data-help-key="staffSummary" aria-label="Staff summary help">?</button>
           <p id="staff-summary-help">This is a planning view derived from paper information. It is not an official FTE calculation.</p>
         </div>
         <div class="metric-grid" id="staff-metrics"></div>
@@ -253,10 +283,12 @@
           <p id="actions-view-help">Bring diagnosis notes from the programme, paper, and assessment pages into decisions and accountable actions.</p>
         </div>
         <button class="button" id="add-action-button">Add action</button>
+        <button class="help-tip" type="button" data-help-key="actions" aria-label="Actions help">?</button>
       </div>
       <section class="workspace-section">
         <div class="section-heading">
           <h3 id="diagnosis-notes-title">Diagnosis Notes From Mapping</h3>
+          <button class="help-tip" type="button" data-help-key="diagnosisNote" aria-label="Diagnosis notes help">?</button>
           <p id="diagnosis-notes-help">These are carried through from programme notes, paper diagnosis notes, and assessment diagnosis notes.</p>
         </div>
         <div class="diagnosis-inbox" id="diagnosis-inbox"></div>
@@ -287,7 +319,11 @@
   </dialog>
 
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <div class="help-popover" id="help-popover" role="dialog" aria-live="polite" hidden>
+    <button class="help-popover-close" type="button" data-help-close aria-label="Close help">×</button>
+    <p id="help-popover-text"></p>
+  </div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=31"></script>
+  <script src="app.js?v=32"></script>
 </body>
 </html>
