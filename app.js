@@ -32,12 +32,14 @@
     activeSavePromise: null
   };
   const ROLE_OPTIONS = [
-    "Gateway / attracts students",
+    "Gateway or Foundation",
     "Core disciplinary spine",
-    "Entry to a pathway",
-    "Methods / skills",
-    "Service / shared provision",
-    "Advanced synthesis / capstone"
+    "Methods or Skills",
+    "Regional or thematic specialisation",
+    "Advanced Application",
+    "Capstone",
+    "Service Paper",
+    "Student attraction / broad interest"
   ];
   const CONNECTION_TYPES = ["required", "recommended", "related"];
   const CONNECTION_TYPE_ORDER = { required: 0, recommended: 1, related: 2 };
@@ -154,7 +156,7 @@
     programmeEvidence: "Shows which assessment items can contribute to a programme-level picture of student progress.",
     studentWorkload: "Shows assessment timing across 12 teaching weeks. Heavier weighted items appear more strongly.",
     paperDetails: "Use this page to complete one paper profile and check its internal alignment from PLO to CLO, activities, and assessment.",
-    paperRoles: "Select one or more roles for the paper, such as core spine, gateway, service paper, methods, or capstone.",
+    paperRoles: "Select one or more roles for the paper, such as gateway/foundation, core spine, methods/skills, thematic specialisation, advanced application, capstone, service paper, or student attraction.",
     paperPloLinks: "This shows which PLOs the paper supports based on the Program alignment table.",
     paperNetwork: "These relationships come from the Program network board. You can adjust type, direction, or related paper here.",
     doubleCodedPaper: "Use this when one teaching paper carries two paper codes, levels, or enrolment identities. The board shows it as one wider split card, while the paper profile can separate the second-side CLOs, activities, and assessment notes.",
@@ -187,15 +189,15 @@
       { id: "plo5", code: "PLO5", title: "Ethical and Cultural Understanding", description: "Engage thoughtfully with ethical, cultural, and social complexity." }
     ],
     papers: [
-      paper("p101", "HUMS101", "Ways of Reading Culture", 100, 70, 100, ["Gateway / attracts students", "Entry to a pathway"]),
+      paper("p101", "HUMS101", "Ways of Reading Culture", 100, 70, 100, ["Gateway or Foundation", "Student attraction / broad interest"]),
       paper("p108", "HUMS108", "Foundations for the Major", 100, 150, 300, ["Core disciplinary spine"]),
-      paper("p102", "HUMS102", "Stories, Society, and Power", 100, 60, 500, ["Service / shared provision"]),
-      paper("p201", "HUMS201", "Debates in the Discipline", 200, 540, 95, ["Core disciplinary spine", "Entry to a pathway"]),
-      paper("p215", "HUMS215", "Methods and Evidence", 200, 600, 285, ["Methods / skills"]),
-      paper("p230", "HUMS230", "Humanities in the World", 200, 530, 490, ["Service / shared provision"]),
+      paper("p102", "HUMS102", "Stories, Society, and Power", 100, 60, 500, ["Service Paper"]),
+      paper("p201", "HUMS201", "Debates in the Discipline", 200, 540, 95, ["Core disciplinary spine", "Gateway or Foundation"]),
+      paper("p215", "HUMS215", "Methods and Evidence", 200, 600, 285, ["Methods or Skills"]),
+      paper("p230", "HUMS230", "Humanities in the World", 200, 530, 490, ["Service Paper"]),
       paper("p301", "HUMS301", "Advanced Topics Seminar", 300, 1010, 105, ["Core disciplinary spine"]),
-      paper("p399", "HUMS399", "Humanities Futures", 300, 1070, 305, ["Advanced synthesis / capstone"]),
-      paper("p315", "HUMS315", "Research Project", 300, 980, 500, ["Methods / skills", "Advanced synthesis / capstone"])
+      paper("p399", "HUMS399", "Humanities Futures", 300, 1070, 305, ["Advanced Application", "Capstone"]),
+      paper("p315", "HUMS315", "Research Project", 300, 980, 500, ["Methods or Skills", "Advanced Application"])
     ],
     alignments: {
       p101: { plo1: "I", plo2: "I", plo3: "", plo4: "I", plo5: "" },
@@ -684,6 +686,54 @@
     return normaliseLevelBands(rows);
   }
 
+  function normalisePaperRoles(value = []) {
+    const roles = Array.isArray(value) ? value : [];
+    const mapped = [];
+    const add = (role) => {
+      if (!role || mapped.some((item) => item.toLowerCase() === role.toLowerCase())) return;
+      mapped.push(role);
+    };
+
+    roles.forEach((role) => {
+      const text = String(role || "").trim();
+      const lower = text.toLowerCase();
+      if (!text) return;
+
+      if (lower === "gateway / attracts students") {
+        add("Gateway or Foundation");
+        add("Student attraction / broad interest");
+      } else if (lower === "entry to a pathway") {
+        add("Gateway or Foundation");
+      } else if (lower === "methods / skills") {
+        add("Methods or Skills");
+      } else if (lower === "service / shared provision") {
+        add("Service Paper");
+      } else if (lower === "advanced synthesis / capstone") {
+        add("Advanced Application");
+        add("Capstone");
+      } else if (ROLE_OPTIONS.some((option) => option.toLowerCase() === lower)) {
+        add(ROLE_OPTIONS.find((option) => option.toLowerCase() === lower));
+      } else {
+        add(text);
+      }
+    });
+
+    return mapped;
+  }
+
+  function roleShortLabel(role) {
+    return ({
+      "Gateway or Foundation": "Gateway/Foundation",
+      "Core disciplinary spine": "Core spine",
+      "Methods or Skills": "Methods/Skills",
+      "Regional or thematic specialisation": "Specialisation",
+      "Advanced Application": "Advanced",
+      "Capstone": "Capstone",
+      "Service Paper": "Service",
+      "Student attraction / broad interest": "Student attraction"
+    })[role] || String(role || "").split(" / ")[0];
+  }
+
   function loadState() {
     if (cloud.workspace && cloud.token) {
       return blankWorkspaceState("Loading cloud workspace...", clone(DEFAULT_WORDING));
@@ -714,7 +764,7 @@
       deliveryMode: normaliseDeliveryMode(item.deliveryMode),
       points: normalisePaperPoints(item.points),
       teachingStaff: item.teachingStaff || "",
-      roles: Array.isArray(item.roles) ? item.roles : [],
+      roles: normalisePaperRoles(item.roles),
       description: item.description || "",
       secondaryLearningOutcomes: item.secondaryLearningOutcomes || "",
       secondaryLearningActivities: item.secondaryLearningActivities || "",
@@ -1863,7 +1913,7 @@
           ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
           ${isDistanceLearningPaper(paperItem) ? `<em class="delivery-tag">Distance</em>` : ""}
           ${paperItem.points ? `<em class="points-tag">${escapeHtml(`${paperItem.points} pts`)}</em>` : ""}
-          ${(paperItem.roles || []).slice(0, 2).map((role) => `<em>${escapeHtml(role.split(" / ")[0])}</em>`).join("")}
+          ${(paperItem.roles || []).slice(0, 2).map((role) => `<em>${escapeHtml(roleShortLabel(role))}</em>`).join("")}
         </div>
       </article>
     `).join("");
