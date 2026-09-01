@@ -1647,33 +1647,6 @@ textarea { min-height: 88px; resize: vertical; line-height: 1.45; }
 .staff-paper-list span { margin-top: 3px; color: var(--muted); font-size: 11.5px; }
 .staff-paper-list small { margin-top: 5px; color: #607087; font-size: 10.5px; }
 
-.staff-patterns {
-  margin-top: 12px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.staff-patterns div {
-  padding: 10px;
-  border: 1px solid #d7e1ec;
-  border-radius: 12px;
-  background: white;
-}
-
-.staff-patterns b {
-  display: block;
-  color: var(--navy);
-  font-size: 11.5px;
-}
-
-.staff-patterns p {
-  margin: 5px 0 0;
-  color: #4c5d72;
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-
 .staff-profile-heading {
   margin-top: 12px;
   display: flex;
@@ -1684,6 +1657,13 @@ textarea { min-height: 88px; resize: vertical; line-height: 1.45; }
 .staff-profile-heading b {
   color: var(--navy);
   font-size: 12px;
+}
+
+.staff-profile-source {
+  margin: 5px 0 0;
+  color: #607087;
+  font-size: 11.5px;
+  line-height: 1.4;
 }
 
 .staff-profile-grid {
@@ -1715,6 +1695,11 @@ textarea { min-height: 88px; resize: vertical; line-height: 1.45; }
   min-height: 72px;
   padding: 8px;
   font-size: 12px;
+}
+
+.staff-profile-grid textarea.staff-profile-generated {
+  background: #f6fbff;
+  border-style: dashed;
 }
 
 .staff-note {
@@ -1968,7 +1953,6 @@ dialog::backdrop { background: rgba(13,29,46,.55); }
   .division-grid { grid-template-columns: 1fr; }
   .internal-map-card { grid-template-columns: 1fr; }
   .double-code-grid { grid-template-columns: 1fr; }
-  .staff-patterns { grid-template-columns: 1fr; }
   .staff-profile-grid { grid-template-columns: 1fr; }
   .flow-arrow { transform: rotate(90deg); min-height: 28px; }
 }

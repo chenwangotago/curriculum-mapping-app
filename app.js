@@ -114,7 +114,7 @@
     },
     staff: {
       title: "Staff",
-      help: "Summarise who teaches which papers, how many paper points are attached, and where expertise patterns may need discussion.",
+      help: "Summarise who teaches which papers, how many paper points are attached, and profile notes for planning discussion.",
       summaryTitle: "Staff Summary",
       summaryHelp: "This is a planning view derived from paper information. It is not an official FTE calculation."
     },
@@ -167,7 +167,7 @@
     internalAlignment: "Map how this paper connects PLOs to CLOs, then to learning activities and assessment evidence.",
     diagnosisNote: "Use diagnosis notes for issues, decisions, or questions that should carry through to the Actions page.",
     staffSummary: "Staff cards are generated from Teaching staff entered in Papers and sorted by the number of papers attached.",
-    staffProfile: "Use staff profile fields to capture research interests, teaching strengths, assessment experience, and student cohorts.",
+    staffProfile: "Use staff profile fields to capture research interests, teaching strengths, assessment experience, and student cohorts. Empty boxes use auto-suggested text from paper and assessment information where available.",
     actions: "Diagnosis notes from Program, Papers, Staff, and Assessments collect here so the team can turn them into decisions and actions."
   };
 
@@ -527,7 +527,7 @@
     wording.staff = mergeObject(base.staff, value.staff);
     if (/teaching staff\s*&\s*workload/i.test(wording.staff.title || "")) wording.staff.title = base.staff.title;
     if (/staff workload summary/i.test(wording.staff.summaryTitle || "")) wording.staff.summaryTitle = base.staff.summaryTitle;
-    if (/workload patterns/i.test(wording.staff.help || "")) wording.staff.help = base.staff.help;
+    if (/workload patterns|expertise patterns/i.test(wording.staff.help || "")) wording.staff.help = base.staff.help;
     if (/official FTE workload calculation/i.test(wording.staff.summaryHelp || "")) wording.staff.summaryHelp = base.staff.summaryHelp;
     wording.actions = mergeObject(base.actions, value.actions);
     return wording;
@@ -2324,6 +2324,33 @@
     );
   }
 
+  function generatedStaffProfile(summary) {
+    const levels = uniqueTextList([...summary.levels], 8);
+    const nzqcfLevels = uniqueTextList([...summary.nzqcfLevels].filter((item) => !/not set/i.test(item)), 8);
+    const deliveryModes = uniqueTextList([...summary.deliveryModes], 8);
+    const learningActivities = uniqueTextList(summary.learningActivities, 8);
+    const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 8);
+
+    return {
+      researchInterests: "",
+      teachingApproaches: learningActivities.length ? `Learning activities: ${learningActivities.join("; ")}` : "",
+      assessmentExperience: assessmentPatterns.length ? assessmentPatterns.join("; ") : "",
+      studentCohorts: [
+        levels.length ? `Otago levels: ${levels.join("; ")}` : "",
+        nzqcfLevels.length ? `NZQCF levels: ${nzqcfLevels.join("; ")}` : "",
+        deliveryModes.length ? `Delivery: ${deliveryModes.join("; ")}` : ""
+      ].filter(Boolean).join("\n")
+    };
+  }
+
+  function staffProfileValue(profile, generatedProfile, field) {
+    return String(profile[field] || generatedProfile[field] || "");
+  }
+
+  function staffProfileClass(profile, generatedProfile, field) {
+    return profile[field] ? "" : (generatedProfile[field] ? "staff-profile-generated" : "");
+  }
+
   function renderStaffWorkload() {
     const metricsElement = byId("staff-metrics");
     const gridElement = byId("staff-workload-grid");
@@ -2347,10 +2374,9 @@
     }
 
     const cards = summaries.map((summary) => {
-      const learningActivities = uniqueTextList(summary.learningActivities, 5);
-      const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 5);
       const note = state.staffNotes?.[summary.name] || "";
       const profile = normaliseStaffProfile(state.staffProfiles?.[summary.name]);
+      const generatedProfile = generatedStaffProfile(summary);
       return `<article class="staff-card">
         <div class="staff-card-heading">
           <div><h3>${escapeHtml(summary.name)}</h3><p>${summary.papers.length} paper${summary.papers.length === 1 ? "" : "s"} · ${summary.points || 0} attached points</p></div>
@@ -2366,27 +2392,27 @@
           <b>Delivery:</b> ${[...summary.deliveryModes].map((item) => `<em>${escapeHtml(item)}</em>`).join("") || "<em>Not set</em>"}
         </div>
         <div class="staff-paper-list">
-          ${summary.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code)).map((paperItem) => `
-            <button type="button" data-open-paper="${paperItem.id}">
-              <b>${escapeHtml(paperCodeLabel(paperItem))}</b>
-              <span>${escapeHtml(paperItem.title)}</span>
-              <small>${escapeHtml(paperPointsLabel(paperItem))} · ${escapeHtml(paperItem.requirement || "Elective")}</small>
-            </button>
-          `).join("")}
-        </div>
-        <div class="staff-patterns">
-          <div><b>Programme roles / expertise signals</b><p>${escapeHtml([...summary.roles].join("; ") || "No paper role selected yet.")}</p></div>
-          <div><b>Learning activity / pedagogy signals</b><p>${escapeHtml(learningActivities.join("; ") || "No learning activities entered yet.")}</p></div>
-          <div><b>Assessment patterns</b><p>${escapeHtml(assessmentPatterns.join("; ") || "No assessment mode entered yet.")}</p></div>
+          ${summary.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code)).map((paperItem) => {
+            const roleLabels = (paperItem.roles || []).map(roleShortLabel).join(", ");
+            const details = [paperPointsLabel(paperItem), paperItem.requirement || "Elective", roleLabels].filter(Boolean).join(" · ");
+            return `
+              <button type="button" data-open-paper="${paperItem.id}">
+                <b>${escapeHtml(paperCodeLabel(paperItem))}</b>
+                <span>${escapeHtml(paperItem.title)}</span>
+                <small>${escapeHtml(details)}</small>
+              </button>
+            `;
+          }).join("")}
         </div>
         <div class="staff-profile-heading"><b>Staff profile</b>${helpButton("staffProfile", "Staff profile")}</div>
+        <p class="staff-profile-source">Blank profile fields show editable suggestions from linked papers and assessments when the dashboard can infer them.</p>
         <div class="staff-profile-grid">
-          <label><span>Research areas / interests</span><textarea data-staff-profile-field="researchInterests" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. public health policy; infectious disease; health equity">${escapeHtml(profile.researchInterests)}</textarea></label>
-          <label><span>Teaching approaches / strengths</span><textarea data-staff-profile-field="teachingApproaches" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. case-based teaching; problem-based learning; community-engaged learning">${escapeHtml(profile.teachingApproaches)}</textarea></label>
-          <label><span>Assessment formats / experience</span><textarea data-staff-profile-field="assessmentExperience" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. ICA; portfolio; oral presentation; case study; exam">${escapeHtml(profile.assessmentExperience)}</textarea></label>
-          <label><span>Student cohorts / supervision</span><textarea data-staff-profile-field="studentCohorts" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. first year; senior students; postgraduate students; research supervision">${escapeHtml(profile.studentCohorts)}</textarea></label>
+          <label><span>Research areas / interests</span><textarea class="${staffProfileClass(profile, generatedProfile, "researchInterests")}" data-staff-profile-field="researchInterests" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. public health policy; infectious disease; health equity">${escapeHtml(staffProfileValue(profile, generatedProfile, "researchInterests"))}</textarea></label>
+          <label><span>Teaching approaches / strengths</span><textarea class="${staffProfileClass(profile, generatedProfile, "teachingApproaches")}" data-staff-profile-field="teachingApproaches" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. case-based teaching; problem-based learning; community-engaged learning">${escapeHtml(staffProfileValue(profile, generatedProfile, "teachingApproaches"))}</textarea></label>
+          <label><span>Assessment formats / experience</span><textarea class="${staffProfileClass(profile, generatedProfile, "assessmentExperience")}" data-staff-profile-field="assessmentExperience" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. ICA; portfolio; oral presentation; case study; exam">${escapeHtml(staffProfileValue(profile, generatedProfile, "assessmentExperience"))}</textarea></label>
+          <label><span>Student cohorts / supervision</span><textarea class="${staffProfileClass(profile, generatedProfile, "studentCohorts")}" data-staff-profile-field="studentCohorts" data-staff-name="${escapeHtml(summary.name)}" placeholder="e.g. first year; senior students; postgraduate students; research supervision">${escapeHtml(staffProfileValue(profile, generatedProfile, "studentCohorts"))}</textarea></label>
         </div>
-        <label class="staff-note"><span>Workload / expertise note for Actions</span><textarea data-staff-note="${escapeHtml(summary.name)}" placeholder="Add workload, capacity, expertise, or succession-risk notes. These carry to Actions.">${escapeHtml(note)}</textarea></label>
+        <label class="staff-note"><span>Notes</span><textarea data-staff-note="${escapeHtml(summary.name)}" placeholder="Add notes for Actions, such as workload, capacity, expertise, or succession risk.">${escapeHtml(note)}</textarea></label>
       </article>`;
     }).join("");
 
@@ -2510,7 +2536,7 @@
       if (!note?.trim()) return;
       notes.push({
         id: `staff:${staffName}`,
-        source: "Staff workload note",
+        source: "Staff note",
         title: staffName,
         note,
         decision: ""
@@ -2763,7 +2789,7 @@
         { name: "programmeTab", label: "Program tab label", value: w.tabs.programme },
         { name: "assessmentTab", label: "Assessments tab label", value: w.tabs.assessment },
         { name: "paperTab", label: "Papers tab label", value: w.tabs.paper },
-        { name: "staffTab", label: "Staff / workload tab label", value: w.tabs.staff },
+        { name: "staffTab", label: "Staff tab label", value: w.tabs.staff },
         { name: "actionsTab", label: "Actions tab label", value: w.tabs.actions },
         { name: "programmeTitle", label: "Program page title", value: w.programme.title },
         { name: "programmeHelp", label: "Program page description", value: w.programme.help, type: "textarea" },
@@ -2923,32 +2949,31 @@
   function printableStaffRows() {
     const rows = staffWorkloadSummaries().map((summary) => {
       const profile = normaliseStaffProfile(state.staffProfiles?.[summary.name]);
+      const generatedProfile = generatedStaffProfile(summary);
       const profileText = [
-        profile.researchInterests ? `Research areas / interests: ${profile.researchInterests}` : "",
-        profile.teachingApproaches ? `Teaching approaches / strengths: ${profile.teachingApproaches}` : "",
-        profile.assessmentExperience ? `Assessment formats / experience: ${profile.assessmentExperience}` : "",
-        profile.studentCohorts ? `Student cohorts / supervision: ${profile.studentCohorts}` : "",
-        state.staffNotes?.[summary.name] ? `Workload / expertise note: ${state.staffNotes[summary.name]}` : ""
+        staffProfileValue(profile, generatedProfile, "researchInterests") ? `Research areas / interests: ${staffProfileValue(profile, generatedProfile, "researchInterests")}` : "",
+        staffProfileValue(profile, generatedProfile, "teachingApproaches") ? `Teaching approaches / strengths: ${staffProfileValue(profile, generatedProfile, "teachingApproaches")}` : "",
+        staffProfileValue(profile, generatedProfile, "assessmentExperience") ? `Assessment formats / experience: ${staffProfileValue(profile, generatedProfile, "assessmentExperience")}` : "",
+        staffProfileValue(profile, generatedProfile, "studentCohorts") ? `Student cohorts / supervision: ${staffProfileValue(profile, generatedProfile, "studentCohorts")}` : ""
       ].filter(Boolean).join("\n");
       const papers = summary.papers
         .slice()
         .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
-        .map((paperItem) => `${paperCodeLabel(paperItem)} ${paperPointsLabel(paperItem)}`)
+        .map((paperItem) => {
+          const roles = (paperItem.roles || []).join("; ");
+          return `${paperCodeLabel(paperItem)} ${paperPointsLabel(paperItem)} (${[paperItem.requirement || "Elective", roles].filter(Boolean).join("; ")})`;
+        })
         .join("; ");
-      const learningActivities = uniqueTextList(summary.learningActivities, 4).join("; ");
-      const assessmentPatterns = uniqueTextList(summary.assessmentPatterns, 4).join("; ");
       return `<tr>
         <td><b>${escapeHtml(summary.name)}</b><br>${printableText(profileText || "")}</td>
         <td>${printableText(papers || "No papers")}</td>
         <td>${escapeHtml(summary.points || 0)}</td>
         <td>${escapeHtml([...summary.levels].join("; ") || "Not set")}</td>
         <td>${escapeHtml([...summary.nzqcfLevels].join("; ") || "Not set")}</td>
-        <td>${printableText([...summary.roles].join("; ") || "No paper role selected.")}</td>
-        <td>${printableText(learningActivities || "No learning activities entered.")}</td>
-        <td>${printableText(assessmentPatterns || "No assessment mode entered.")}</td>
+        <td>${printableText(state.staffNotes?.[summary.name] || "")}</td>
       </tr>`;
     }).join("");
-    return rows || `<tr><td colspan="8">No teaching staff entered.</td></tr>`;
+    return rows || `<tr><td colspan="6">No teaching staff entered.</td></tr>`;
   }
 
   function printableReportHtml() {
@@ -3079,7 +3104,7 @@
 
         <h2>Staff</h2>
         <p class="muted">Paper points are attached to named staff for planning discussion; they are not divided across co-teachers and are not an official FTE calculation.</p>
-        <table><thead><tr><th>Staff</th><th>Papers</th><th>Attached points</th><th>Otago levels</th><th>NZQCF levels</th><th>Roles / expertise signals</th><th>Learning activity signals</th><th>Assessment patterns</th></tr></thead><tbody>${printableStaffRows()}</tbody></table>
+        <table><thead><tr><th>Staff</th><th>Papers</th><th>Attached points</th><th>Otago levels</th><th>NZQCF levels</th><th>Notes</th></tr></thead><tbody>${printableStaffRows()}</tbody></table>
 
         <h2>Decisions And Actions</h2>
         <table><thead><tr><th>Diagnosis note</th><th>Decision / action</th><th>Status</th><th>Owner</th><th>Notes</th></tr></thead><tbody>${printableActionRows()}</tbody></table>
@@ -3484,7 +3509,7 @@
     }
     if (element.matches("[data-staff-note]")) {
       const staffName = element.dataset.staffNote || "Unknown staff";
-      return { key: `staff-note:${staffName}`, label: `Staff workload note for ${staffName}`, value: valueForElement(element) };
+      return { key: `staff-note:${staffName}`, label: `Staff note for ${staffName}`, value: valueForElement(element) };
     }
     if (element.matches("[data-staff-profile-field]")) {
       const staffName = element.dataset.staffName || "Unknown staff";
