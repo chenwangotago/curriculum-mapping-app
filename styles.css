@@ -502,6 +502,7 @@ tr:last-child td { border-bottom: 0; }
 .alignment-cell[data-value="D"] .alignment-mark {
   color: #62419d; border-style: solid; border-color: #cabbea; background: #f0eafe;
 }
+.alignment-cell[data-value="A"] .alignment-mark,
 .alignment-cell[data-value="M"] .alignment-mark {
   color: #16634d; border-style: solid; border-color: #add7ca; background: #e4f6f0;
 }
@@ -975,6 +976,7 @@ textarea { min-height: 88px; resize: vertical; line-height: 1.45; }
 .plo-badge b { margin-right: 5px; color: var(--navy); }
 .plo-badge[data-level="I"] { background: #e8f1ff; border-color: #a9c6ed; }
 .plo-badge[data-level="D"] { background: #f0eafe; border-color: #cabbea; }
+.plo-badge[data-level="A"],
 .plo-badge[data-level="M"] { background: #e4f6f0; border-color: #add7ca; }
 
 .derived-list {

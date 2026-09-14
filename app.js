@@ -57,7 +57,7 @@
       ploTitle: "Programme Learning Outcomes",
       ploHelp: "Click a PLO to edit it. Dragging is not needed here; the order sets the table order.",
       alignmentTitle: "Alignment Mapping Exercise",
-      alignmentHelp: "Click each PLO cell to cycle through blank → Introduced → Developed → Mastered.",
+      alignmentHelp: "Click each PLO cell to cycle through blank → Introduced → Developed → Achieved.",
       pathwaysTitle: "Student Pathways & Programme Network",
       pathwaysHelp: "Drag papers freely across levels to make possible journeys visible. Use lines to show required, recommended, or related movement between papers.",
       addPlo: "Add PLO",
@@ -71,7 +71,7 @@
     alignment: {
       introduced: "Introduced",
       developed: "Developed",
-      mastered: "Mastered"
+      mastered: "Achieved"
     },
     network: {
       move: "Move papers",
@@ -146,7 +146,7 @@
     addPlo: "Add a new programme learning outcome. The PLO order here also controls the order used in mapping tables.",
     addPaper: "Add a new paper/course to the programme map. You can complete details later in the Papers tab.",
     plos: "Click any PLO card to edit its code, title, or description.",
-    alignment: "Click each cell to cycle through blank, I, D, and M. Use this to discuss how each paper supports each PLO.",
+    alignment: "Click each cell to cycle through blank, I, D, and A. Use this to discuss how each paper supports each PLO.",
     network: "Drag paper cards to shape possible student journeys. Choose a relationship mode, then click two papers to draw or remove a line.",
     networkModes: "Move = drag cards. Required/Recommended/Related = click the earlier paper, then the next paper. Remove line = click the two connected papers.",
     boardGrouping: "Switch whether the board groups papers by Otago paper code level or by NZQCF level.",
@@ -206,9 +206,9 @@
       p201: { plo1: "D", plo2: "D", plo3: "I", plo4: "D", plo5: "D" },
       p215: { plo1: "", plo2: "D", plo3: "D", plo4: "D", plo5: "" },
       p230: { plo1: "D", plo2: "D", plo3: "", plo4: "D", plo5: "D" },
-      p301: { plo1: "M", plo2: "M", plo3: "D", plo4: "M", plo5: "D" },
-      p399: { plo1: "M", plo2: "M", plo3: "M", plo4: "M", plo5: "M" },
-      p315: { plo1: "D", plo2: "M", plo3: "M", plo4: "M", plo5: "D" }
+      p301: { plo1: "A", plo2: "A", plo3: "D", plo4: "A", plo5: "D" },
+      p399: { plo1: "A", plo2: "A", plo3: "A", plo4: "A", plo5: "A" },
+      p315: { plo1: "D", plo2: "A", plo3: "A", plo4: "A", plo5: "D" }
     },
     notes: {
       p101: "Is PLO4 taught, assessed, or both?",
@@ -519,8 +519,10 @@
     }
     if (!value.tabs?.staff && wording.tabs.actions === "4. Actions") wording.tabs.actions = base.tabs.actions;
     wording.programme = mergeObject(base.programme, value.programme);
+    if (/mastered/i.test(wording.programme.alignmentHelp || "")) wording.programme.alignmentHelp = base.programme.alignmentHelp;
     wording.programme.levelBands = normaliseLevelBands(value.programme?.levelBands);
     wording.alignment = mergeObject(base.alignment, value.alignment);
+    if (/^mastered$/i.test(wording.alignment.mastered || "")) wording.alignment.mastered = base.alignment.mastered;
     wording.network = mergeObject(base.network, value.network);
     wording.assessment = mergeObject(base.assessment, value.assessment);
     wording.paper = mergeObject(base.paper, value.paper);
@@ -734,6 +736,23 @@
     })[role] || String(role || "").split(" / ")[0];
   }
 
+  function normaliseAlignmentValue(value) {
+    const code = String(value || "").trim().toUpperCase();
+    if (code === "M") return "A";
+    return ["I", "D", "A"].includes(code) ? code : "";
+  }
+
+  function normaliseAlignments(value = {}) {
+    const alignments = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    return Object.fromEntries(Object.entries(alignments).map(([paperId, row]) => {
+      const cells = row && typeof row === "object" && !Array.isArray(row) ? row : {};
+      return [paperId, Object.fromEntries(Object.entries(cells).map(([ploId, level]) => [
+        ploId,
+        normaliseAlignmentValue(level)
+      ]))];
+    }));
+  }
+
   function loadState() {
     if (cloud.workspace && cloud.token) {
       return blankWorkspaceState("Loading cloud workspace...", clone(DEFAULT_WORDING));
@@ -797,7 +816,7 @@
       meta,
       plos: Array.isArray(input.plos) ? input.plos : base.plos,
       papers,
-      alignments: input.alignments || {},
+      alignments: normaliseAlignments(input.alignments || base.alignments),
       notes: input.notes || {},
       pathways: Array.isArray(input.pathways) ? input.pathways : base.pathways,
       connections: normaliseConnections(input.connections, validPaperIds),
@@ -1670,7 +1689,7 @@
     byId("alignment-legend").innerHTML = `
       <span><b>I</b> ${escapeHtml(w.alignment.introduced)}</span>
       <span><b>D</b> ${escapeHtml(w.alignment.developed)}</span>
-      <span><b>M</b> ${escapeHtml(w.alignment.mastered)}</span>`;
+      <span><b>A</b> ${escapeHtml(w.alignment.mastered)}</span>`;
 
     setText("assessment-view-title", w.assessment.title);
     setText("assessment-view-help", w.assessment.help);
@@ -2038,7 +2057,7 @@
     `).join("");
     const ploBadges = alignedPlos.length
       ? alignedPlos.map((plo) => `<span class="plo-badge" data-level="${plo.level}"><b>${escapeHtml(plo.code)}</b>${escapeHtml(plo.level)} · ${escapeHtml(plo.title)}</span>`).join("")
-      : `<div class="empty-state compact">No PLO support selected yet. Add I/D/M in the Program mapping table.</div>`;
+      : `<div class="empty-state compact">No PLO support selected yet. Add I/D/A in the Program mapping table.</div>`;
     const internalRows = alignedPlos.map((plo) => {
       const assessmentEvidence = assessments
         .filter((assessmentItem) => assessmentItem.evidence?.[plo.id])
@@ -2152,7 +2171,7 @@
       <section class="internal-map">
         <h3>Internal Alignment Map ${helpButton("internalAlignment", "Internal alignment map")}</h3>
         <p>Map the chain from PLO → CLO → learning activity → assessment evidence for this paper.</p>
-        <div class="internal-map-cards">${internalRows || `<div class="empty-state compact">Add I/D/M alignment in the Program page to generate this map.</div>`}</div>
+        <div class="internal-map-cards">${internalRows || `<div class="empty-state compact">Add I/D/A alignment in the Program page to generate this map.</div>`}</div>
       </section>
       <section class="paper-section diagnosis-section">
         <h3>Diagnosis Note ${helpButton("diagnosisNote", "Diagnosis note")}</h3>
@@ -2799,7 +2818,7 @@
         { name: "alignmentHelp", label: "Alignment section help text", value: w.programme.alignmentHelp, type: "textarea" },
         { name: "introduced", label: "I label", value: w.alignment.introduced },
         { name: "developed", label: "D label", value: w.alignment.developed },
-        { name: "mastered", label: "M label", value: w.alignment.mastered },
+        { name: "mastered", label: "A label", value: w.alignment.mastered },
         { name: "pathwaysTitle", label: "Pathways/network section title", value: w.programme.pathwaysTitle },
         { name: "pathwaysHelp", label: "Pathways/network section help text", value: w.programme.pathwaysHelp, type: "textarea" },
         { name: "levelBands", label: "Level bands (one per line: Label | Description | Min | Max | Default level)", value: levelBandsToText(), type: "textarea" },
@@ -2906,7 +2925,7 @@
   }
 
   function printableAlignmentValue(paperId, ploId) {
-    return state.alignments[paperId]?.[ploId] || "–";
+    return normaliseAlignmentValue(state.alignments[paperId]?.[ploId]) || "–";
   }
 
   function printableRelationshipRows() {
@@ -3640,10 +3659,10 @@
     const alignmentCell = event.target.closest(".alignment-cell");
     if (alignmentCell) {
       if (!canEditWorkspace()) return;
-      const sequence = ["", "I", "D", "M"];
+      const sequence = ["", "I", "D", "A"];
       const paperId = alignmentCell.dataset.paperId;
       const ploId = alignmentCell.dataset.ploId;
-      const current = state.alignments[paperId]?.[ploId] || "";
+      const current = normaliseAlignmentValue(state.alignments[paperId]?.[ploId]);
       const plo = state.plos.find((item) => item.id === ploId);
       markDiscreteEditPresence({ key: `alignment-cell:${paperId}:${ploId}`, label: `${paperLabel(paperId)} × ${plo?.code || "PLO"}` });
       const next = sequence[(sequence.indexOf(current) + 1) % sequence.length];
