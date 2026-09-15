@@ -135,6 +135,8 @@
     copyEditLink: "Share this with people who should add or change mapping content during the workshop.",
     copyViewLink: "Share this with reviewers who should read the workspace and add comments without changing the mapping.",
     sessionName: "Enter your name so comments, edit-presence warnings, and the admin log can show who contributed.",
+    addComment: "Add review feedback without changing the team's mapping. View-only reviewers can use this.",
+    reviewComments: "Read submitted comments. Admin links can also edit or delete comments when cleaning up review feedback.",
     comments: "Use comments for review feedback that should not directly change the team's mapping.",
     adminLog: "Admin-only record of recent edits, comments, and key changes. It helps trace who changed what and when.",
     saveVersion: "Save a restorable version inside this workspace. It is not a downloaded file; use Export JSON for a portable backup.",
@@ -1042,11 +1044,32 @@
     if (!reviewComments.length) return `<div class="empty-state compact">No comments yet.</div>`;
     return `<div class="comment-list">${reviewComments.map((comment) => `
       <article class="comment-card">
-        <b>${escapeHtml(comment.author || "Anonymous reviewer")}</b>
-        <small>${escapeHtml(comment.target || "Workspace")} · ${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</small>
+        <div class="comment-card-header">
+          <div>
+            <b>${escapeHtml(comment.author || "Anonymous reviewer")}</b>
+            <small>${escapeHtml(comment.target || "Workspace")} · ${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</small>
+          </div>
+          ${cloud.canManageTemplate ? `
+            <div class="comment-actions">
+              <button class="mini-button" type="button" data-comment-edit="${escapeHtml(comment.id)}">Edit</button>
+              <button class="mini-button danger" type="button" data-comment-delete="${escapeHtml(comment.id)}">Delete</button>
+            </div>
+          ` : ""}
+        </div>
         <p>${escapeHtml(comment.body || "")}</p>
       </article>
     `).join("")}</div>`;
+  }
+
+  function reviewCommentFields() {
+    return [
+      { name: "existingComments", type: "html", html: reviewCommentHtml() }
+    ];
+  }
+
+  function refreshReviewCommentsDialog() {
+    if (dialogContext?.kind !== "reviewComments") return;
+    byId("dialog-fields").innerHTML = reviewCommentFields().map(fieldHtml).join("");
   }
 
   async function fetchReviewComments(silent = false) {
@@ -1074,23 +1097,87 @@
     toast("Comment added");
   }
 
-  async function openComments() {
+  async function updateReviewComment(commentId, values) {
+    if (!cloud.canManageTemplate) return toast("Only the admin link can edit review comments.");
+    const author = ensureSessionName("manage review comments");
+    const body = String(values.body || "").trim();
+    if (!body) return toast("Comment is empty");
+    const data = await callReviewRpc("update_curriculum_workspace_comment", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token,
+      comment_id: commentId,
+      comment_author: author,
+      comment_body: body,
+      comment_target: values.target || "Workspace"
+    });
+    if (!data) return;
+    await fetchReviewComments(true);
+    toast("Comment updated");
+  }
+
+  async function deleteReviewComment(commentId) {
+    if (!cloud.canManageTemplate) return toast("Only the admin link can delete review comments.");
+    if (!confirm("Delete this comment? This cannot be undone.")) return;
+    const author = ensureSessionName("manage review comments");
+    const data = await callReviewRpc("delete_curriculum_workspace_comment", {
+      workspace_slug: cloud.workspace,
+      access_token: cloud.token,
+      comment_id: commentId,
+      activity_author: author
+    });
+    if (!data) return;
+    await fetchReviewComments(true);
+    refreshReviewCommentsDialog();
+    toast("Comment deleted");
+  }
+
+  function openEditReviewComment(commentId) {
+    if (!cloud.canManageTemplate) return toast("Only the admin link can edit review comments.");
+    const comment = reviewComments.find((item) => item.id === commentId);
+    if (!comment) return toast("Comment not found");
+    openDialog({
+      eyebrow: "Admin",
+      title: "Edit Comment",
+      fields: [
+        { name: "target", label: "Comment relates to", value: comment.target || "Workspace" },
+        { name: "body", label: "Comment", value: comment.body || "", type: "textarea", required: true }
+      ],
+      submitLabel: "Update comment",
+      async onSave(values) {
+        await updateReviewComment(commentId, values);
+      }
+    });
+  }
+
+  async function openAddComment() {
     if (!cloud.enabled) return toast("Comments are available on cloud links.");
     ensureSessionName("add review comments");
+    reviewBackendAvailable = true;
+    openDialog({
+      eyebrow: cloud.canEdit ? "Comment" : "Review",
+      title: "Add Comment",
+      fields: [
+        { name: "target", label: "Comment relates to", value: commentTargetOptions()[0]?.value || "Workspace", type: "select", options: commentTargetOptions() },
+        { name: "body", label: "Comment", value: "", type: "textarea", required: true }
+      ],
+      submitLabel: "Add comment",
+      async onSave(values) {
+        await createReviewComment(values);
+      }
+    });
+  }
+
+  async function openReviewComments() {
+    if (!cloud.enabled) return toast("Comments are available on cloud links.");
     reviewBackendAvailable = true;
     try {
       await fetchReviewComments();
       openDialog({
-        eyebrow: cloud.canEdit ? "Comments" : "Review",
+        kind: "reviewComments",
+        eyebrow: cloud.canManageTemplate ? "Admin review" : "Review",
         title: "Review Comments",
-        fields: [
-          { name: "existingComments", type: "html", html: reviewCommentHtml() },
-          { name: "target", label: "Comment relates to", value: commentTargetOptions()[0]?.value || "Workspace", type: "select", options: commentTargetOptions() },
-          { name: "body", label: "Add a comment", value: "", type: "textarea", required: true }
-        ],
-        async onSave(values) {
-          await createReviewComment(values);
-        }
+        fields: reviewCommentFields(),
+        hideSave: true
       });
     } catch (error) {
       alert(`Unable to open comments: ${error.message}`);
@@ -1523,14 +1610,16 @@
     const editButton = byId("copy-edit-link-button");
     const viewButton = byId("copy-view-link-button");
     const sessionButton = byId("session-name-button");
-    const commentsButton = byId("comments-button");
+    const addCommentButton = byId("add-comment-button");
+    const reviewCommentsButton = byId("review-comments-button");
     const activityButton = byId("activity-log-button");
     byId("create-cloud-workspace-button").hidden = cloud.enabled;
     adminButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.adminToken || cloud.token));
     editButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.editToken || cloud.token));
     viewButton.hidden = !(cloud.enabled && cloud.canManageTemplate && cloud.viewToken);
     sessionButton.hidden = !cloud.enabled;
-    commentsButton.hidden = !cloud.enabled;
+    addCommentButton.hidden = !cloud.enabled;
+    reviewCommentsButton.hidden = !cloud.enabled;
     activityButton.hidden = !(cloud.enabled && cloud.canManageTemplate);
     sessionButton.textContent = sessionName ? `Name: ${sessionName}` : "My name";
     document.body.classList.toggle("read-only", cloud.enabled && !cloud.canEdit);
@@ -2570,7 +2659,17 @@
     byId("dialog-title").textContent = config.title;
     byId("dialog-fields").innerHTML = config.fields.map(fieldHtml).join("");
     byId("dialog-delete-button").hidden = !config.onDelete;
-    byId("edit-dialog").showModal();
+    byId("dialog-cancel-button").textContent = config.cancelLabel || (config.hideSave ? "Close" : "Cancel");
+    const saveButton = byId("dialog-save-button");
+    saveButton.hidden = Boolean(config.hideSave);
+    saveButton.textContent = config.submitLabel || "Save";
+    const dialog = byId("edit-dialog");
+    if (!dialog.open) dialog.showModal();
+  }
+
+  function closeDialog() {
+    byId("edit-dialog").close();
+    dialogContext = null;
   }
 
   function fieldHtml(field) {
@@ -3998,6 +4097,23 @@
     }
   });
 
+  byId("dialog-close-button").addEventListener("click", closeDialog);
+  byId("dialog-cancel-button").addEventListener("click", closeDialog);
+  byId("edit-dialog").addEventListener("close", () => {
+    dialogContext = null;
+  });
+  byId("dialog-fields").addEventListener("click", (event) => {
+    const editButton = event.target.closest("[data-comment-edit]");
+    if (editButton) {
+      openEditReviewComment(editButton.dataset.commentEdit);
+      return;
+    }
+    const deleteButton = event.target.closest("[data-comment-delete]");
+    if (deleteButton) {
+      void deleteReviewComment(deleteButton.dataset.commentDelete);
+    }
+  });
+
   byId("dialog-form").addEventListener("submit", async (event) => {
     event.preventDefault();
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -4013,8 +4129,7 @@
   byId("dialog-delete-button").addEventListener("click", () => {
     if (!dialogContext?.onDelete || !confirm("Delete this item?")) return;
     dialogContext.onDelete();
-    byId("edit-dialog").close();
-    dialogContext = null;
+    closeDialog();
   });
 
   byId("paper-search").addEventListener("input", renderPaperList);
@@ -4048,7 +4163,8 @@
       }
     });
   });
-  byId("comments-button").addEventListener("click", openComments);
+  byId("add-comment-button").addEventListener("click", openAddComment);
+  byId("review-comments-button").addEventListener("click", openReviewComments);
   byId("activity-log-button").addEventListener("click", openActivityLog);
   byId("save-snapshot-button").addEventListener("click", saveSnapshot);
   byId("versions-button").addEventListener("click", openVersions);

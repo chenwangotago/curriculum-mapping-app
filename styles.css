@@ -228,6 +228,36 @@ body.read-only .discussion-note {
   background: #fbfdff;
 }
 
+.comment-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.comment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.comment-actions .mini-button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.comment-actions .mini-button.danger {
+  color: #9b2f2f;
+  border-color: #e7b8b8;
+}
+
 .comment-card b,
 .activity-log-card b {
   display: block;

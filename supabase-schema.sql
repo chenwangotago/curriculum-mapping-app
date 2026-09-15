@@ -42,8 +42,16 @@ create table if not exists public.curriculum_workspace_comments (
   author text not null default 'Anonymous reviewer',
   target text not null default 'Workspace',
   body text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
+
+alter table public.curriculum_workspace_comments add column if not exists updated_at timestamptz;
+update public.curriculum_workspace_comments
+set updated_at = created_at
+where updated_at is null;
+alter table public.curriculum_workspace_comments alter column updated_at set default now();
+alter table public.curriculum_workspace_comments alter column updated_at set not null;
 
 create table if not exists public.curriculum_workspace_activity (
   id uuid primary key default gen_random_uuid(),
@@ -354,7 +362,8 @@ begin
     'author', comment.author,
     'target', comment.target,
     'body', comment.body,
-    'createdAt', comment.created_at
+    'createdAt', comment.created_at,
+    'updatedAt', comment.updated_at
   );
 end;
 $$;
@@ -385,7 +394,8 @@ begin
         'author', c.author,
         'target', c.target,
         'body', c.body,
-        'createdAt', c.created_at
+        'createdAt', c.created_at,
+        'updatedAt', c.updated_at
       ) order by c.created_at desc)
       from (
         select *
@@ -396,6 +406,123 @@ begin
       ) c
     ),
     '[]'::jsonb
+  );
+end;
+$$;
+
+create or replace function public.update_curriculum_workspace_comment(
+  workspace_slug text,
+  access_token text,
+  comment_id uuid,
+  comment_author text,
+  comment_body text,
+  comment_target text default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+  existing_comment curriculum_workspace_comments;
+  updated_comment curriculum_workspace_comments;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and admin_token = access_token;
+
+  if not found then
+    raise exception 'Workspace not found, admin only, or token invalid';
+  end if;
+
+  select * into existing_comment
+  from public.curriculum_workspace_comments
+  where id = comment_id
+    and workspace_id = workspace.id;
+
+  if not found then
+    raise exception 'Comment not found';
+  end if;
+
+  update public.curriculum_workspace_comments
+  set body = comment_body,
+      target = coalesce(nullif(comment_target, ''), existing_comment.target),
+      updated_at = now()
+  where id = existing_comment.id
+  returning * into updated_comment;
+
+  insert into public.curriculum_workspace_activity (workspace_id, author, action, target, details)
+  values (
+    workspace.id,
+    coalesce(nullif(comment_author, ''), 'Unknown'),
+    'Edited review comment',
+    updated_comment.target,
+    jsonb_build_object('commentId', updated_comment.id)
+  );
+
+  return jsonb_build_object(
+    'id', updated_comment.id,
+    'author', updated_comment.author,
+    'target', updated_comment.target,
+    'body', updated_comment.body,
+    'createdAt', updated_comment.created_at,
+    'updatedAt', updated_comment.updated_at
+  );
+end;
+$$;
+
+create or replace function public.delete_curriculum_workspace_comment(
+  workspace_slug text,
+  access_token text,
+  comment_id uuid,
+  activity_author text default 'Unknown'
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  workspace curriculum_workspaces;
+  existing_comment curriculum_workspace_comments;
+begin
+  select * into workspace
+  from public.curriculum_workspaces
+  where slug = workspace_slug
+    and archived_at is null
+    and admin_token = access_token;
+
+  if not found then
+    raise exception 'Workspace not found, admin only, or token invalid';
+  end if;
+
+  select * into existing_comment
+  from public.curriculum_workspace_comments
+  where id = comment_id
+    and workspace_id = workspace.id;
+
+  if not found then
+    raise exception 'Comment not found';
+  end if;
+
+  insert into public.curriculum_workspace_activity (workspace_id, author, action, target, details)
+  values (
+    workspace.id,
+    coalesce(nullif(activity_author, ''), 'Unknown'),
+    'Deleted review comment',
+    existing_comment.target,
+    jsonb_build_object('commentId', existing_comment.id, 'commentAuthor', existing_comment.author)
+  );
+
+  delete from public.curriculum_workspace_comments
+  where id = existing_comment.id;
+
+  return jsonb_build_object(
+    'id', existing_comment.id,
+    'deleted', true
   );
 end;
 $$;
@@ -616,6 +743,8 @@ grant execute on function public.create_curriculum_workspace_version(text, text,
 grant execute on function public.list_curriculum_workspace_versions(text, text) to anon;
 grant execute on function public.create_curriculum_workspace_comment(text, text, text, text, text) to anon;
 grant execute on function public.list_curriculum_workspace_comments(text, text) to anon;
+grant execute on function public.update_curriculum_workspace_comment(text, text, uuid, text, text, text) to anon;
+grant execute on function public.delete_curriculum_workspace_comment(text, text, uuid, text) to anon;
 grant execute on function public.create_curriculum_workspace_activity(text, text, text, text, text, jsonb) to anon;
 grant execute on function public.list_curriculum_workspace_activity(text, text) to anon;
 grant execute on function public.list_curriculum_workspace_presence(text, text) to anon;
