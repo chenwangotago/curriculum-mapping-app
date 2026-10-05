@@ -1629,7 +1629,7 @@
     $$("[data-requires-admin], #wording-settings-button, #new-template-button, #import-button")
       .forEach((button) => { button.disabled = lockForReadOnly || (cloud.enabled && !cloud.canManageTemplate); });
     byId("wording-settings-button").hidden = cloud.enabled && !cloud.canManageTemplate;
-    byId("new-template-button").hidden = cloud.enabled && !cloud.canManageTemplate;
+    byId("new-template-button").hidden = !cloud.enabled || !cloud.canManageTemplate;
     byId("import-button").hidden = cloud.enabled && !cloud.canManageTemplate;
     setReadOnlyFields(lockForReadOnly);
   }
