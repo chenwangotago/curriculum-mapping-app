@@ -140,9 +140,9 @@
     copyAdminLink: "Keep this link private. It can edit template wording and manage share links for this workspace.",
     copyEditLink: "Share this with people who should add or change mapping content during the workshop.",
     copyViewLink: "Share this with reviewers who should read the workspace and add comments without changing the mapping.",
-    sessionName: "Enter your name so comments, edit-presence warnings, and the admin log can show who contributed.",
-    addComment: "Add review feedback without changing the team's mapping. View-only reviewers can use this.",
-    reviewComments: "Read submitted comments. Admin links can also edit or delete comments when cleaning up review feedback.",
+    sessionName: "Your name is remembered in this browser. Use My name to change it. Comments, edit-presence warnings, and the admin log show this self-reported name.",
+    addComment: "Add review feedback for a page, paper, or specific block. Your name is remembered in this browser. View-only reviewers can comment without changing the mapping.",
+    reviewComments: "Read submitted comments and filter by the page, paper, or block they relate to. Admin links can also edit or delete comments.",
     comments: "Use comments for review feedback that should not directly change the team's mapping.",
     adminLog: "Admin-only record of recent edits, comments, and key changes. It helps trace who changed what and when.",
     saveVersion: "Save a restorable version inside this workspace. It is not a downloaded file; use Export JSON for a portable backup.",
@@ -294,6 +294,8 @@
   let sessionName = "";
   let clientId = "";
   let reviewComments = [];
+  let reviewCommentsWorkspace = "";
+  let commentReviewTarget = "";
   let activityLog = [];
   let presenceRecords = [];
   let presenceTimer = null;
@@ -984,7 +986,7 @@
 
   function refreshSessionIdentity() {
     clientId = clientId || getClientId();
-    sessionName = localStorageGet(workspaceScopedKey(SESSION_NAME_KEY)) || localStorageGet(SESSION_NAME_KEY);
+    sessionName = localStorageGet(workspaceScopedKey(SESSION_NAME_KEY)) || localStorageGet(SESSION_NAME_KEY) || sessionName;
     updateShareButtons();
   }
 
@@ -1034,27 +1036,104 @@
     return activeTab?.textContent?.trim() || "Workspace";
   }
 
-  function commentTargetOptions() {
-    const options = [
-      { value: currentViewLabel(), label: `Current view: ${currentViewLabel()}` },
-      { value: "Program page", label: "Program page" },
-      { value: "Assessment page", label: "Assessment page" },
-      { value: "Paper page", label: "Paper page" },
-      { value: "Actions page", label: "Actions page" }
+  function commentBlockDefinitions() {
+    const w = getWording();
+    return [
+      { key: "programme:plos", title: w.programme.ploTitle, selector: "#plo-section-title" },
+      { key: "programme:alignment", title: w.programme.alignmentTitle, selector: "#alignment-section-title" },
+      { key: "programme:network", title: w.programme.pathwaysTitle, selector: "#pathways-section-title" },
+      { key: "assessment:evidence", title: w.assessment.evidenceTitle, selector: "#assessment-evidence-title" },
+      { key: "assessment:items", title: w.assessment.itemsTitle, selector: "#assessment-items-title" },
+      { key: "assessment:summary", title: w.assessment.summaryTitle, selector: "#assessment-summary-title" },
+      { key: "assessment:programmeEvidence", title: w.assessment.programmeEvidenceTitle, selector: "#programme-evidence-title" },
+      { key: "assessment:workload", title: w.assessment.workloadTitle, selector: "#student-workload-title" },
+      { key: "paper:profile", title: "Paper Information", selector: "#paper-editor .editor-heading" },
+      { key: "paper:description", title: "Paper Description", selector: "#paper-editor [data-review-section='description']" },
+      { key: "paper:clos", title: "Course Learning Outcomes", selector: "#paper-editor [data-review-section='clos']" },
+      { key: "paper:activities", title: "Learning Activities", selector: "#paper-editor [data-review-section='activities']" },
+      { key: "paper:secondSide", title: "Second Code Side", selector: "#paper-editor [data-review-section='secondSide']" },
+      { key: "paper:concepts", title: "Key Concepts / Knowledge Domains", selector: "#paper-editor [data-review-section='concepts']" },
+      { key: "paper:assessments", title: "Assessment Items", selector: "#paper-editor [data-review-section='assessments']" },
+      { key: "paper:vertical", title: "Vertical Alignment Validation", selector: '#paper-alignment-maps [aria-label="Vertical alignment validation"] > h3' },
+      { key: "paper:internal", title: "Internal Alignment Map", selector: '#paper-alignment-maps [aria-label="Internal alignment map"] > h3' },
+      { key: "paper:diagnosis", title: "Diagnosis Note", selector: "#paper-editor .diagnosis-section > h3" },
+      { key: "staff:summary", title: w.staff.summaryTitle, selector: "#staff-summary-title" },
+      { key: "actions:diagnosis", title: w.actions.diagnosisTitle, selector: "#diagnosis-notes-title" }
     ];
-    const selected = state.papers.find((paperItem) => paperItem.id === selectedPaperId);
-    if (selected) options.unshift({ value: `Paper: ${selected.code}`, label: `Selected paper: ${selected.code} · ${selected.title}` });
-    return options;
+  }
+
+  function reviewPageLabel(view) {
+    return String(getWording().tabs[view] || view).replace(/^\d+\.\s*/, "");
+  }
+
+  function blockCommentTarget(block, paperId = selectedPaperId) {
+    return `block:${block.key}${block.key.startsWith("paper:") ? `:${encodeURIComponent(paperId || "")}` : ""}`;
+  }
+
+  function commentTargetLabel(target = "Workspace") {
+    if (target.startsWith("page:")) return `${reviewPageLabel(target.slice(5))} / Whole page`;
+    if (target.startsWith("paper:")) {
+      const paperItem = state.papers.find((item) => encodeURIComponent(item.id) === target.slice(6));
+      return paperItem ? `Paper: ${paperCodeLabel(paperItem)} / Whole paper` : "Paper no longer in workspace";
+    }
+    if (target.startsWith("block:")) {
+      const [, view, section, paperId] = target.split(":");
+      const block = commentBlockDefinitions().find((item) => item.key === `${view}:${section}`);
+      if (block) {
+        const paperItem = view === "paper" ? state.papers.find((item) => encodeURIComponent(item.id) === paperId) : null;
+        const page = view === "paper" ? (paperItem ? `Paper ${paperCodeLabel(paperItem)}` : "Paper no longer in workspace") : reviewPageLabel(view);
+        return `${page} / ${block.title}`;
+      }
+    }
+    return target;
+  }
+
+  function currentWorkspaceComments() {
+    return reviewCommentsWorkspace === cloud.workspace ? reviewComments : [];
+  }
+
+  function commentTargetOptions(selectedTarget = "") {
+    const view = $(".tab.active")?.dataset.view || "programme";
+    const page = `page:${view}`;
+    const values = [page];
+    if (view === "paper" && selectedPaperId) values.push(`paper:${encodeURIComponent(selectedPaperId)}`);
+    commentBlockDefinitions().filter((block) => block.key.startsWith(`${view}:`) && $(block.selector))
+      .forEach((block) => values.push(blockCommentTarget(block)));
+    ["programme", "assessment", "paper", "staff", "actions"].forEach((key) => values.push(`page:${key}`));
+    if (selectedTarget) values.push(selectedTarget);
+    return [...new Set(values)].map((value) => ({ value, label: commentTargetLabel(value) }));
+  }
+
+  function renderBlockCommentButtons() {
+    commentBlockDefinitions().forEach((block) => {
+      const anchor = $(block.selector);
+      if (!anchor) return;
+      let tools = anchor.nextElementSibling?.matches(".review-block-tools") ? anchor.nextElementSibling : null;
+      if (!cloud.enabled) {
+        tools?.remove();
+        return;
+      }
+      const target = blockCommentTarget(block);
+      const count = currentWorkspaceComments().filter((comment) => comment.target === target).length;
+      if (!tools) {
+        tools = document.createElement("div");
+        tools.className = "review-block-tools";
+        anchor.insertAdjacentElement("afterend", tools);
+      }
+      tools.innerHTML = `<button type="button" class="review-block-button" data-add-block-comment="${escapeHtml(target)}" aria-label="Add comment: ${escapeHtml(commentTargetLabel(target))}">Add comment</button>
+        <button type="button" class="review-block-button" data-review-block-comments="${escapeHtml(target)}" aria-label="Review comments: ${escapeHtml(commentTargetLabel(target))}">Review comments (${count})</button>`;
+    });
   }
 
   function reviewCommentHtml() {
-    if (!reviewComments.length) return `<div class="empty-state compact">No comments yet.</div>`;
-    return `<div class="comment-list">${reviewComments.map((comment) => `
+    const comments = currentWorkspaceComments().filter((comment) => !commentReviewTarget || comment.target === commentReviewTarget);
+    if (!comments.length) return `<div class="empty-state compact">${commentReviewTarget ? "No comments for this block or page yet." : "No comments yet."}</div>`;
+    return `<div class="comment-list">${comments.map((comment) => `
       <article class="comment-card">
         <div class="comment-card-header">
           <div>
             <b>${escapeHtml(comment.author || "Anonymous reviewer")}</b>
-            <small>${escapeHtml(comment.target || "Workspace")} · ${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</small>
+            <small>${escapeHtml(commentTargetLabel(comment.target || "Workspace"))} · ${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</small>
           </div>
           ${cloud.canManageTemplate ? `
             <div class="comment-actions">
@@ -1069,7 +1148,13 @@
   }
 
   function reviewCommentFields() {
+    const targets = new Set(currentWorkspaceComments().map((comment) => comment.target || "Workspace"));
+    if (commentReviewTarget) targets.add(commentReviewTarget);
     return [
+      { name: "reviewTarget", label: "Show comments for", type: "select", value: commentReviewTarget, options: [
+        { value: "", label: "All comments in this workspace" },
+        ...[...targets].map((value) => ({ value, label: commentTargetLabel(value) }))
+      ] },
       { name: "existingComments", type: "html", html: reviewCommentHtml() }
     ];
   }
@@ -1080,18 +1165,23 @@
   }
 
   async function fetchReviewComments(silent = false) {
+    const workspace = cloud.workspace;
     const data = await callReviewRpc("list_curriculum_workspace_comments", {
       workspace_slug: cloud.workspace,
       access_token: cloud.token
     }, { silent });
-    if (Array.isArray(data)) reviewComments = data;
-    return reviewComments;
+    if (Array.isArray(data) && workspace === cloud.workspace) {
+      reviewComments = data;
+      reviewCommentsWorkspace = workspace;
+      renderBlockCommentButtons();
+    }
+    return currentWorkspaceComments();
   }
 
   async function createReviewComment(values) {
     const author = ensureSessionName("add review comments");
     const body = String(values.body || "").trim();
-    if (!body) return toast("Comment is empty");
+    if (!body) throw new Error("Please enter a comment before saving.");
     const data = await callReviewRpc("create_curriculum_workspace_comment", {
       workspace_slug: cloud.workspace,
       access_token: cloud.token,
@@ -1099,8 +1189,16 @@
       comment_body: body,
       comment_target: values.target || currentViewLabel()
     });
-    if (!data) return;
-    await fetchReviewComments(true);
+    if (!data) throw new Error("Comment was not saved. Please try again or contact the workspace admin.");
+    if (reviewCommentsWorkspace !== cloud.workspace) reviewComments = [];
+    reviewCommentsWorkspace = cloud.workspace;
+    reviewComments = [...reviewComments.filter((comment) => comment.id !== data.id), data];
+    renderBlockCommentButtons();
+    try {
+      await fetchReviewComments(true);
+    } catch (error) {
+      console.warn("Comment saved; unable to refresh other review comments", error);
+    }
     toast("Comment added");
   }
 
@@ -1108,7 +1206,7 @@
     if (!cloud.canManageTemplate) return toast("Only the admin link can edit review comments.");
     const author = ensureSessionName("manage review comments");
     const body = String(values.body || "").trim();
-    if (!body) return toast("Comment is empty");
+    if (!body) throw new Error("Please enter a comment before saving.");
     const data = await callReviewRpc("update_curriculum_workspace_comment", {
       workspace_slug: cloud.workspace,
       access_token: cloud.token,
@@ -1143,39 +1241,62 @@
     const comment = reviewComments.find((item) => item.id === commentId);
     if (!comment) return toast("Comment not found");
     openDialog({
+      kind: "editComment",
       eyebrow: "Admin",
       title: "Edit Comment",
       fields: [
-        { name: "target", label: "Comment relates to", value: comment.target || "Workspace" },
-        { name: "body", label: "Comment", value: comment.body || "", type: "textarea", required: true }
+        { name: "target", label: "Comment relates to", value: comment.target || "Workspace", type: "select", options: commentTargetOptions(comment.target || "Workspace") },
+        ...commentBodyFields(comment.body || "")
       ],
       submitLabel: "Update comment",
       async onSave(values) {
-        await updateReviewComment(commentId, values);
+        try {
+          await updateReviewComment(commentId, values);
+        } catch (error) {
+          toast(`Comment not saved: ${error.message}`);
+          throw error;
+        }
       }
     });
   }
 
-  async function openAddComment() {
+  function commentBodyFields(body = "") {
+    return [
+      { name: "body", label: "Comment", value: body, type: "textarea", required: true },
+      { name: "commentHelp", type: "html", html: `<p class="comment-composer-help"><span data-comment-counter>${Array.from(body).length} characters</span> · No fixed word limit. Multiple paragraphs are welcome.</p>` }
+    ];
+  }
+
+  async function openAddComment(target = "") {
     if (!cloud.enabled) return toast("Comments are available on cloud links.");
     ensureSessionName("add review comments");
     reviewBackendAvailable = true;
+    const options = commentTargetOptions(target);
     openDialog({
+      kind: "addComment",
       eyebrow: cloud.canEdit ? "Comment" : "Review",
       title: "Add Comment",
       fields: [
-        { name: "target", label: "Comment relates to", value: commentTargetOptions()[0]?.value || "Workspace", type: "select", options: commentTargetOptions() },
-        { name: "body", label: "Comment", value: "", type: "textarea", required: true }
+        { name: "reviewerName", type: "html", html: `<p class="comment-composer-help">Commenting as <b>${escapeHtml(sessionName || "Anonymous reviewer")}</b>. Your name is remembered in this browser.</p>` },
+        { name: "target", label: "Comment relates to", value: target || options[0]?.value || "Workspace", type: "select", options },
+        ...commentBodyFields()
       ],
       submitLabel: "Add comment",
       async onSave(values) {
-        await createReviewComment(values);
+        try {
+          await createReviewComment(values);
+        } catch (error) {
+          toast(`Comment not saved: ${error.message}`);
+          throw error;
+        }
       }
     });
   }
 
-  async function openReviewComments() {
+  async function openReviewComments(target = "") {
     if (!cloud.enabled) return toast("Comments are available on cloud links.");
+
+    commentReviewTarget = target;
     reviewBackendAvailable = true;
     try {
       await fetchReviewComments();
@@ -1639,6 +1760,7 @@
     byId("new-template-button").hidden = !cloud.enabled || !cloud.canManageTemplate;
     byId("import-button").hidden = cloud.enabled && !cloud.canManageTemplate;
     setReadOnlyFields(lockForReadOnly);
+    renderBlockCommentButtons();
   }
 
   function setReadOnlyFields(readOnly) {
@@ -2354,7 +2476,7 @@
     `).join("");
     const doubleCodeSideSection = doubleCoded ? `
         <section class="paper-section double-code-section">
-          <h3>Second Code Side ${helpButton("doubleCodedPaper", "Double-coded paper")}</h3>
+          <h3 data-review-section="secondSide">Second Code Side ${helpButton("doubleCodedPaper", "Double-coded paper")}</h3>
           <p class="section-help">Use this area when the second code has distinct CLOs, learning activities, assessment design, or expectations. The main boxes above remain the first code side or shared design.</p>
           <h4>Second-side CLOs</h4>${designItemEditor(item, "secondaryClos")}
           <h4>Second-side learning activities</h4>${designItemEditor(item, "secondaryActivities")}
@@ -2400,23 +2522,23 @@
       </div>
       <div class="paper-detail-stack">
         <section class="paper-section">
-          <h3>Paper Description ${helpButton("paperDescription", "Paper description")}</h3>
+          <h3 data-review-section="description">Paper Description ${helpButton("paperDescription", "Paper description")}</h3>
           <p class="section-help">Add the official or locally agreed paper description used for programme approval, handbook, or course design documentation.</p>
           <textarea class="large-textarea" data-paper-field="description">${escapeHtml(item.description || "")}</textarea>
         </section>
         <section class="paper-section">
-          <h3>${escapeHtml(cloHeading)} ${helpButton("clos", "Course learning outcomes")}</h3>
+          <h3 data-review-section="clos">${escapeHtml(cloHeading)} ${helpButton("clos", "Course learning outcomes")}</h3>
           <p class="section-help">Add each CLO as a separate item. Use its number to select connections in the maps below.</p>
           ${designItemEditor(item, "clos")}
         </section>
         <section class="paper-section">
-          <h3>${escapeHtml(activityHeading)} ${helpButton("learningActivities", "Learning activities")}</h3>
+          <h3 data-review-section="activities">${escapeHtml(activityHeading)} ${helpButton("learningActivities", "Learning activities")}</h3>
           <p class="section-help">Add each activity as a separate item (LA1, LA2, LA3), then connect it to CLOs below.</p>
           ${designItemEditor(item, "activities")}
         </section>
         ${doubleCodeSideSection}
-        <label class="paper-section"><h3>Key concepts / knowledge domains</h3><textarea data-paper-field="concepts">${escapeHtml(item.concepts)}</textarea></label>
-        <section class="paper-section"><h3>Assessment ${helpButton("paperAssessment", "Paper assessment")}</h3>
+        <section class="paper-section"><h3 data-review-section="concepts">Key concepts / knowledge domains</h3><textarea data-paper-field="concepts" aria-label="Key concepts / knowledge domains">${escapeHtml(item.concepts)}</textarea></section>
+        <section class="paper-section"><h3 data-review-section="assessments">Assessment ${helpButton("paperAssessment", "Paper assessment")}</h3>
           <p class="section-help">These rows are shared with the Assessments tab. Editing them here updates the programme assessment map.</p>
           <div class="mini-table-wrap">
             <table class="mini-table">
@@ -2436,6 +2558,7 @@
 
     byId("diagnosis-panel").innerHTML = "";
     setReadOnlyFields(cloud.enabled && !cloud.canEdit);
+    renderBlockCommentButtons();
   }
 
   function diagnostic(title, text) {
@@ -2829,6 +2952,7 @@
     byId("dialog-cancel-button").textContent = config.cancelLabel || (config.hideSave ? "Close" : "Cancel");
     const saveButton = byId("dialog-save-button");
     saveButton.hidden = Boolean(config.hideSave);
+    saveButton.disabled = false;
     saveButton.textContent = config.submitLabel || "Save";
     const dialog = byId("edit-dialog");
     if (!dialog.open) dialog.showModal();
@@ -3288,7 +3412,7 @@
     </tr>`).join("") || `<tr><td colspan="${state.plos.length + 1}">No assessment evidence mapped.</td></tr>`;
     const commentsRows = reviewComments.map((comment) => `<tr>
       <td>${escapeHtml(comment.author || "Anonymous reviewer")}</td>
-      <td>${escapeHtml(comment.target || "Workspace")}</td>
+      <td>${escapeHtml(commentTargetLabel(comment.target || "Workspace"))}</td>
       <td>${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</td>
       <td>${printableText(comment.body || "")}</td>
     </tr>`).join("") || `<tr><td colspan="4">No review comments.</td></tr>`;
@@ -3938,6 +4062,10 @@
   }
 
   document.addEventListener("click", (event) => {
+    const addBlockComment = event.target.closest("[data-add-block-comment]");
+    if (addBlockComment) return void openAddComment(addBlockComment.dataset.addBlockComment);
+    const reviewBlockComments = event.target.closest("[data-review-block-comments]");
+    if (reviewBlockComments) return void openReviewComments(reviewBlockComments.dataset.reviewBlockComments);
     const helpClose = event.target.closest("[data-help-close]");
     if (helpClose) return closeHelpPopover();
 
@@ -4128,6 +4256,10 @@
   });
 
   document.addEventListener("input", (event) => {
+    if (event.target.matches("#field-body") && $("[data-comment-counter]")) {
+      $("[data-comment-counter]").textContent = `${Array.from(event.target.value).length} characters`;
+      return;
+    }
     const designItem = event.target.closest("[data-design-item]");
     if (designItem) {
       if (!canEditWorkspace(false)) return;
@@ -4236,6 +4368,10 @@
   });
 
   document.addEventListener("change", (event) => {
+    if (event.target.matches("#field-reviewTarget") && dialogContext?.kind === "reviewComments") {
+      commentReviewTarget = event.target.value;
+      return refreshReviewCommentsDialog();
+    }
     const designLink = event.target.closest("[data-design-link]");
     if (designLink) {
       if (!canEditWorkspace()) {
@@ -4362,7 +4498,7 @@
   byId("dialog-close-button").addEventListener("click", closeDialog);
   byId("dialog-cancel-button").addEventListener("click", closeDialog);
   byId("edit-dialog").addEventListener("close", () => {
-    dialogContext = null;
+    if (!byId("edit-dialog").open) dialogContext = null;
   });
   byId("dialog-fields").addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-comment-edit]");
@@ -4378,13 +4514,22 @@
 
   byId("dialog-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const context = dialogContext;
+    if (!context || context.saving) return;
+    context.saving = true;
+    byId("dialog-save-button").disabled = true;
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     try {
-      await dialogContext?.onSave?.(values);
-      byId("edit-dialog").close();
-      dialogContext = null;
+      await context.onSave?.(values);
+      if (dialogContext === context) {
+        byId("edit-dialog").close();
+        dialogContext = null;
+      }
     } catch (error) {
       console.error("Dialog save failed", error);
+    } finally {
+      context.saving = false;
+      if (dialogContext === context || !byId("edit-dialog").open) byId("dialog-save-button").disabled = false;
     }
   });
 
@@ -4425,8 +4570,8 @@
       }
     });
   });
-  byId("add-comment-button").addEventListener("click", openAddComment);
-  byId("review-comments-button").addEventListener("click", openReviewComments);
+  byId("add-comment-button").addEventListener("click", () => openAddComment());
+  byId("review-comments-button").addEventListener("click", () => openReviewComments());
   byId("activity-log-button").addEventListener("click", openActivityLog);
   byId("save-snapshot-button").addEventListener("click", saveSnapshot);
   byId("versions-button").addEventListener("click", openVersions);

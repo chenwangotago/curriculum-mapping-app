@@ -280,7 +280,15 @@ body.read-only .discussion-note {
   font-size: 12px;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
+
+.review-block-tools { display: inline-flex; flex-wrap: wrap; gap: 6px; margin: 7px 0 7px 12px; vertical-align: middle; }
+.review-block-button { padding: 6px 10px; border: 1px solid #cbd9ea; border-radius: 8px; color: #30547d; background: #f6faff; font: inherit; font-size: 11px; font-weight: 750; cursor: pointer; }
+.review-block-button:hover { background: #e7f0fd; border-color: #8eadd4; }
+.review-block-button:focus-visible { outline: 2px solid #2563d8; outline-offset: 2px; }
+.comment-composer-help { margin: 0 0 10px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+#dialog-fields:has([data-comment-counter]) #field-body { min-height: 180px; }
 
 .app-tabs {
   padding: 12px 28px 0;
@@ -2029,6 +2037,7 @@ dialog::backdrop { background: rgba(13,29,46,.55); }
 }
 
 @media (max-width: 760px) {
+  .review-block-tools { display: flex; margin-left: 0; }
   .app-header, .view-heading, .section-heading.split, .canvas-toolbar { align-items: flex-start; flex-direction: column; }
   main { padding: 12px; }
   .app-tabs { padding-left: 12px; }
@@ -2107,6 +2116,8 @@ dialog::backdrop { background: rgba(13,29,46,.55); }
   .pathway-canvas {
     overflow: visible !important;
   }
+
+  .review-block-tools { display: none !important; }
 
   .mapping-table,
   .assessment-table,
