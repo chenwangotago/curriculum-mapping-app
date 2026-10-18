@@ -1758,7 +1758,7 @@
 
   function isTextEditingActive() {
     const active = document.activeElement;
-    return Boolean(active?.matches?.("input, textarea, [contenteditable='true']"));
+    return Boolean(active?.matches?.("input:not([type='checkbox']), textarea, [contenteditable='true']"));
   }
 
   function renderWording() {
@@ -2435,6 +2435,7 @@
       </section>`;
 
     byId("diagnosis-panel").innerHTML = "";
+    setReadOnlyFields(cloud.enabled && !cloud.canEdit);
   }
 
   function diagnostic(title, text) {
