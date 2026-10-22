@@ -65,6 +65,12 @@ The fourth tab, `External Accreditation`, maps the programme's existing PLOs to 
 
 The complete mapping is included in JSON backups, saved versions, and the PDF report. Read-only reviewers can read, comment, and export; edit links can change sets and mappings. The page records the team's alignment judgements, not an accreditation decision. Official standards are not preloaded; use the correct source and version for the programme.
 
+## Double-Coded / Dual-Level Papers
+
+Keep a double-coded paper as one record with two codes and levels. The Program matrix displays two cohort rows within one shared teaching-delivery group, so each code can have its own I/D/A judgements. The network still has one card, staff summaries count one teaching paper, and programme discussion notes remain shared.
+
+Existing shared judgements are copied into independent cohort rows and labelled as carried over. Review each cohort, edit its cells, or use `Confirm carried-over values` to retain its values after review. Changing or clearing one cohort does not change the other. Paper Details and the PDF display both code-specific contributions, and JSON backups and saved versions include both rows. No new links or Supabase schema migration are required.
+
 ## Division Overview
 
 The division overview lives at:

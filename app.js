@@ -162,7 +162,7 @@
     addPlo: "Add a new programme learning outcome. The PLO order here also controls the order used in mapping tables.",
     addPaper: "Add a new paper/course to the programme map. You can complete details later in the Papers tab.",
     plos: "Click any PLO card to edit its code, title, or description.",
-    alignment: "Click each cell to cycle through blank, I, D, and A. Use this to discuss how each paper supports each PLO.",
+    alignment: "Click each cell to cycle through blank, I, D, and A. Double-coded papers have one shared teaching-delivery group and a separate row for each code / student cohort. Carried-over shared values should be reviewed for each cohort.",
     network: "Drag paper cards to shape possible student journeys. Choose a relationship mode, then click two papers to draw or remove a line.",
     networkModes: "Move = drag cards. Required/Recommended/Related = click the earlier paper, then the next paper. Remove line = click the two connected papers.",
     boardGrouping: "Switch whether the board groups papers by Otago paper code level or by NZQCF level.",
@@ -175,7 +175,7 @@
     paperRoles: "Select one or more roles for the paper, such as gateway/foundation, core spine, methods/skills, thematic specialisation, advanced application, capstone, service paper, or student attraction.",
     paperPloLinks: "This shows which PLOs the paper supports based on the Program alignment table.",
     paperNetwork: "These relationships come from the Program network board. You can adjust type, direction, or related paper here.",
-    doubleCodedPaper: "Use this when one teaching paper carries two paper codes, levels, or enrolment identities. The board shows it as one wider split card, while the paper profile can separate the second-side CLOs, activities, and assessment notes.",
+    doubleCodedPaper: "Use this when one teaching delivery carries two paper codes, levels, or student cohorts. The Program matrix maps each code separately, while the network keeps one shared card. CLOs, activities, and assessment can also be recorded by code side.",
     paperDescription: "Use this for the official or locally agreed paper description.",
     clos: "Add each Course Learning Outcome as a separate item. Select its CLO number in the alignment maps below. Connections stay with the item when its text or number changes.",
     learningActivities: "Add each learning activity as a separate item (LA1, LA2, and so on), then select which CLOs it supports in the Internal Alignment Map.",
@@ -777,6 +777,23 @@
     }));
   }
 
+  function initialiseCohortAlignments(paperItem, alignments, secondaryAlignments, plos) {
+    const validPloIds = new Set(plos.map((plo) => plo.id));
+    const previous = paperItem.inheritedCohortAlignments || {};
+    const inherited = {
+      first: (Array.isArray(previous.first) ? previous.first : []).filter((id) => validPloIds.has(id) && alignments[paperItem.id]?.[id]),
+      second: (Array.isArray(previous.second) ? previous.second : []).filter((id) => validPloIds.has(id) && secondaryAlignments[paperItem.id]?.[id])
+    };
+    if (isDoubleCodedPaper(paperItem) && !Object.prototype.hasOwnProperty.call(secondaryAlignments, paperItem.id)) {
+      // Preserve the old shared judgement as an independent starting point for each cohort.
+      secondaryAlignments[paperItem.id] = { ...(alignments[paperItem.id] || {}) };
+      const copied = Object.keys(alignments[paperItem.id] || {}).filter((id) => validPloIds.has(id) && alignments[paperItem.id][id]);
+      inherited.first = [...new Set([...inherited.first, ...copied])];
+      inherited.second = [...copied];
+    }
+    paperItem.inheritedCohortAlignments = inherited;
+  }
+
   function loadState() {
     if (cloud.workspace && cloud.token) {
       return blankWorkspaceState("Loading cloud workspace...", clone(DEFAULT_WORDING));
@@ -854,6 +871,10 @@
       diagnosisNote: item.diagnosisNote || ""
     }));
     const validPaperIds = new Set(papers.map((paperItem) => paperItem.id));
+    const plos = Array.isArray(input.plos) ? input.plos : base.plos;
+    const alignments = normaliseAlignments(input.alignments || base.alignments);
+    const secondaryAlignments = normaliseAlignments(input.secondaryAlignments || {});
+    papers.forEach((paperItem) => initialiseCohortAlignments(paperItem, alignments, secondaryAlignments, plos));
     const actions = (Array.isArray(input.actions) ? input.actions : []).map((item) => ({
       ...item,
       status: item.status === "Done" ? "Completed" : (item.status || "To do"),
@@ -863,9 +884,10 @@
       ...base,
       ...input,
       meta,
-      plos: Array.isArray(input.plos) ? input.plos : base.plos,
+      plos,
       papers,
-      alignments: normaliseAlignments(input.alignments || base.alignments),
+      alignments,
+      secondaryAlignments,
       notes: input.notes || {},
       pathways: Array.isArray(input.pathways) ? input.pathways : base.pathways,
       connections: normaliseConnections(input.connections, validPaperIds),
@@ -967,6 +989,7 @@
       plos: [],
       papers: [],
       alignments: {},
+      secondaryAlignments: {},
       notes: {},
       pathways: [],
       connections: [],
@@ -2026,33 +2049,89 @@
 
   function renderMappingTable() {
     const table = byId("mapping-table");
+    const hasCohorts = state.papers.some(isDoubleCodedPaper);
     const head = state.plos.map((plo) => `<th title="${escapeHtml(plo.title)}">${escapeHtml(plo.code)}</th>`).join("");
     const rows = state.papers
       .slice()
       .sort((a, b) => a.level - b.level || a.code.localeCompare(b.code))
       .map((paperItem) => {
-        const cells = state.plos.map((plo) => {
-          const value = state.alignments[paperItem.id]?.[plo.id] || "";
-          return `<td class="alignment-cell" data-paper-id="${paperItem.id}" data-plo-id="${plo.id}" data-value="${value}">
-            <span class="alignment-mark">${value || "–"}</span>
-          </td>`;
-        }).join("");
-        return `<tr>
-          <td class="paper-cell" data-open-paper="${paperItem.id}">
+        const cohorts = paperCohorts(paperItem);
+        const doubleCoded = isDoubleCodedPaper(paperItem);
+        return cohorts.map((cohort, index) => {
+          const cells = state.plos.map((plo) => {
+            const value = cohortAlignmentValue(paperItem, plo.id, cohort.key);
+            const inherited = isInheritedCohortAlignment(paperItem, plo.id, cohort.key);
+            return `<td class="alignment-cell ${inherited ? "inherited-alignment" : ""}" data-paper-id="${paperItem.id}" data-cohort="${cohort.key}" data-plo-id="${plo.id}" data-value="${value}" title="${escapeHtml(`${cohort.code} / ${plo.code}${inherited ? ': carried over from the previous shared mapping; review this cohort' : ''}`)}">
+              <span class="alignment-mark">${value || "–"}</span>
+            </td>`;
+          }).join("");
+          const inherited = paperItem.inheritedCohortAlignments?.[cohort.key]?.length;
+          return `<tr class="${doubleCoded ? `mapping-cohort-row mapping-cohort-${cohort.key}` : ""}" data-mapping-paper="${paperItem.id}" data-mapping-cohort="${cohort.key}">
+          ${index === 0 ? `<td class="paper-cell ${doubleCoded ? "shared-delivery-cell" : ""}" rowspan="${cohorts.length}" data-open-paper="${paperItem.id}">
             <b>${escapeHtml(paperCodeLabel(paperItem))}</b><span>${escapeHtml(paperItem.title)}</span>
+            ${doubleCoded ? `<strong class="shared-delivery-label">Shared teaching delivery</strong>` : ""}
             <small class="paper-cell-meta">${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small>
-          </td>
+          </td>` : ""}
+          ${hasCohorts ? `<td class="paper-cohort-cell"><b>${escapeHtml(cohort.code)}</b><span>${escapeHtml(cohortMetaLabel(cohort))}</span>
+            ${doubleCoded && inherited ? `<div class="cohort-inherited-notice" data-cohort-notice="${cohort.key}" data-paper-id="${paperItem.id}"><small>Carried over from shared mapping. Review for this cohort.</small><button type="button" class="button" data-confirm-cohort="${cohort.key}" data-paper-id="${paperItem.id}" data-requires-edit>Confirm carried-over values</button></div>` : ""}
+          </td>` : ""}
           ${cells}
-          <td class="discussion-note" contenteditable="true" data-note-paper="${paperItem.id}">${escapeHtml(state.notes[paperItem.id] || "")}</td>
+          ${index === 0 ? `<td class="discussion-note" rowspan="${cohorts.length}" contenteditable="true" data-note-paper="${paperItem.id}">${escapeHtml(state.notes[paperItem.id] || "")}</td>` : ""}
         </tr>`;
+        }).join("");
       }).join("");
-    table.innerHTML = `<thead><tr><th>Paper</th>${head}<th>Discussion Notes</th></tr></thead><tbody>${rows}</tbody>`;
+    table.innerHTML = `<thead><tr><th>${hasCohorts ? "Paper / shared delivery" : "Paper"}</th>${hasCohorts ? "<th>Code / student cohort</th>" : ""}${head}<th>Discussion Notes</th></tr></thead><tbody>${rows}</tbody>`;
+  }
+
+  function paperCohorts(paperItem) {
+    const first = { key: "first", code: paperItem.code || "First code", level: paperItem.level, nzqfLevel: paperItem.nzqfLevel };
+    return isDoubleCodedPaper(paperItem) ? [first, {
+      key: "second", code: paperItem.secondaryCode || "Second code", level: paperItem.secondaryLevel, nzqfLevel: paperItem.secondaryNzqfLevel
+    }] : [first];
+  }
+
+  function cohortMetaLabel(cohort) {
+    return [cohort.level ? `Otago ${bandLabelForLevel(cohort.level)}` : "Otago level not set", cohort.nzqfLevel ? `NZQCF ${cohort.nzqfLevel}` : "NZQCF not set"].join(" · ");
+  }
+
+  function cohortAlignmentValue(paperItem, ploId, cohort = "first") {
+    const mappings = cohort === "second" ? state.secondaryAlignments : state.alignments;
+    return normaliseAlignmentValue(mappings[paperItem.id]?.[ploId]);
+  }
+
+  function isInheritedCohortAlignment(paperItem, ploId, cohort) {
+    return isDoubleCodedPaper(paperItem) && Boolean(paperItem.inheritedCohortAlignments?.[cohort]?.includes(ploId));
+  }
+
+  function cohortPloLevels(paperItem, ploId) {
+    return paperCohorts(paperItem).map((cohort) => ({
+      ...cohort, value: cohortAlignmentValue(paperItem, ploId, cohort.key), inherited: isInheritedCohortAlignment(paperItem, ploId, cohort.key)
+    })).filter((cohort) => cohort.value);
+  }
+
+  function paperPloSupportLabel(paperItem, ploId) {
+    return cohortPloLevels(paperItem, ploId).map((cohort) => `${isDoubleCodedPaper(paperItem) ? `${cohort.code}: ` : ""}${cohort.value}${cohort.inherited ? " (carried over)" : ""}`).join(" · ");
+  }
+
+  function paperPloBadgesHtml(paperItem, plos) {
+    const badges = (cohort) => plos.flatMap((plo) => plo.cohorts.filter((item) => item.key === cohort.key).map((item) =>
+      `<span class="plo-badge" data-level="${item.value}"><b>${escapeHtml(plo.code)}</b>${escapeHtml(item.value)} · ${escapeHtml(plo.title)}${item.inherited ? " (carried over)" : ""}</span>`)).join("")
+      || `<div class="empty-state compact">No PLO support selected for this cohort.</div>`;
+    if (!isDoubleCodedPaper(paperItem)) return plos.length ? badges(paperCohorts(paperItem)[0])
+      : `<div class="empty-state compact">No PLO support selected yet. Add I/D/A in the Program mapping table.</div>`;
+    return paperCohorts(paperItem).map((cohort) => `<div class="cohort-plo-group" data-supported-cohort="${cohort.key}">
+      <b>${escapeHtml(cohort.code)}</b><small>${escapeHtml(cohortMetaLabel(cohort))}</small><div class="plo-badge-grid">${badges(cohort)}</div>
+    </div>`).join("");
   }
 
   function supportedPlos(paperItem) {
     return state.plos
-      .map((plo) => ({ ...plo, level: state.alignments[paperItem.id]?.[plo.id] || "" }))
-      .filter((plo) => plo.level);
+      .map((plo) => {
+        const cohorts = cohortPloLevels(paperItem, plo.id);
+        const values = [...new Set(cohorts.map((cohort) => cohort.value))];
+        return { ...plo, level: values.length === 1 ? values[0] : "", cohorts, levelSummary: paperPloSupportLabel(paperItem, plo.id) };
+      })
+      .filter((plo) => plo.cohorts.length);
   }
 
   function paperAssessments(paperId) {
@@ -2240,7 +2319,7 @@
     return `<fieldset class="alignment-choices"><legend>${escapeHtml(label)}</legend>${items.map((item) => `
       <label class="alignment-choice ${selected.includes(item.id) ? "selected" : ""}">
         <input type="checkbox" data-design-link="${kind}" data-paper-id="${escapeHtml(paperItem.id)}" data-source-id="${escapeHtml(sourceId)}" data-target-id="${escapeHtml(item.id)}" ${selected.includes(item.id) ? "checked" : ""}>
-        <span class="alignment-choice-content"><b>${escapeHtml(item.code)}</b> <span data-design-text-id="${escapeHtml(item.id)}">${escapeHtml(item.text || "Untitled item")}</span>${item.side && isDoubleCodedPaper(paperItem) ? `<small>${escapeHtml(assessmentSideLabel(item))}</small>` : ""}</span>
+        <span class="alignment-choice-content"><b>${escapeHtml(item.code)}</b> <span data-design-text-id="${escapeHtml(item.id)}">${escapeHtml(item.text || "Untitled item")}</span>${item.side && isDoubleCodedPaper(paperItem) ? `<small>${escapeHtml(assessmentSideLabel(item))}</small>` : ""}${isDoubleCodedPaper(paperItem) && item.kind ? `<small>${escapeHtml(item.kind.startsWith("secondary") ? `Second side: ${paperItem.secondaryCode || "Second code"}` : `First/shared side: ${paperItem.code || "First code"}`)}</small>` : ""}</span>
       </label>`).join("") || `<p class="muted-text">Add ${escapeHtml(label.toLowerCase())} above to create connections.</p>`}</fieldset>`;
   }
 
@@ -2277,7 +2356,7 @@
     const activities = paperLearningActivities(paperItem);
     const assessments = numberedAssessments(paperItem);
     const verticalRows = verticalAlignmentPlos(paperItem).map((plo) => {
-      const level = state.alignments[paperItem.id]?.[plo.id];
+      const level = paperPloSupportLabel(paperItem, plo.id);
       return `<article class="alignment-map-row vertical-alignment-row" data-vertical-plo="${escapeHtml(plo.id)}">
         <div class="alignment-row-title"><b>${escapeHtml(plo.code)}</b><span>${escapeHtml(plo.title)}</span><small>${level ? `${escapeHtml(level)} · From Program discussion` : "Review Program mapping: no paper support selected"}</small></div>
         ${alignmentChoices(paperItem, "ploClos", plo.id, clos, "CLO connections")}
@@ -2384,7 +2463,7 @@
         </div>
         <span>${escapeHtml(paperItem.title)}</span>
         <div class="paper-card-tags">
-          ${isDoubleCodedPaper(paperItem) ? `<em class="double-code-tag">Double-coded</em>` : ""}
+          ${isDoubleCodedPaper(paperItem) ? `<em class="double-code-tag" title="Shared teaching delivery; each code has its own Program PLO mapping">Double-coded</em>` : ""}
           ${paperItem.requirement === "Compulsory" ? `<em class="requirement-tag">Compulsory</em>` : ""}
           ${isDistanceLearningPaper(paperItem) ? `<em class="delivery-tag">Distance</em>` : ""}
           ${paperItem.points ? `<em class="points-tag">${escapeHtml(`${paperItem.points} pts`)}</em>` : ""}
@@ -2511,9 +2590,7 @@
       <button type="button" class="role-chip ${item.roles?.includes(role) ? "selected" : ""}"
         data-paper-role="${escapeHtml(role)}">${escapeHtml(role)}</button>
     `).join("");
-    const ploBadges = alignedPlos.length
-      ? alignedPlos.map((plo) => `<span class="plo-badge" data-level="${plo.level}"><b>${escapeHtml(plo.code)}</b>${escapeHtml(plo.level)} · ${escapeHtml(plo.title)}</span>`).join("")
-      : `<div class="empty-state compact">No PLO support selected yet. Add I/D/A in the Program mapping table.</div>`;
+    const ploBadges = paperPloBadgesHtml(item, alignedPlos);
     const assessmentRows = assessments.map((assessmentItem, index) => `
       <tr data-assessment-row="${assessmentItem.id}">
         <td><b>A${index + 1}</b></td>
@@ -3229,6 +3306,10 @@
         state.papers.forEach((item) => {
           state.alignments[item.id] ||= {};
           state.alignments[item.id][id] = "";
+          if (isDoubleCodedPaper(item)) {
+            state.secondaryAlignments[item.id] ||= {};
+            state.secondaryAlignments[item.id][id] = "";
+          }
         });
         renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); renderAccreditation(); scheduleSave(); toast("PLO added");
       }
@@ -3250,7 +3331,11 @@
       onDelete() {
         state.plos = state.plos.filter((plo) => plo.id !== id);
         Object.values(state.alignments).forEach((alignment) => delete alignment[id]);
+        Object.values(state.secondaryAlignments).forEach((alignment) => delete alignment[id]);
         state.papers.forEach((paperItem) => {
+          ["first", "second"].forEach((cohort) => {
+            if (paperItem.inheritedCohortAlignments?.[cohort]) paperItem.inheritedCohortAlignments[cohort] = paperItem.inheritedCohortAlignments[cohort].filter((ploId) => ploId !== id);
+          });
           delete paperItem.ploLinks?.[id];
           delete paperItem.activityLinks?.[id];
           delete paperItem.secondaryPloLinks?.[id];
@@ -3302,6 +3387,7 @@
         item.teachingStaff = values.teachingStaff || "";
         state.papers.push(normalisePaperDesign(item));
         state.alignments[id] = Object.fromEntries(state.plos.map((plo) => [plo.id, ""]));
+        initialiseCohortAlignments(item, state.alignments, state.secondaryAlignments, state.plos);
         selectedPaperId = id;
         renderAll(); scheduleSave(); toast("Paper added");
       }
@@ -3313,6 +3399,7 @@
     if (!confirm("Delete this paper and its mapping, connections, and assessments?")) return;
     state.papers = state.papers.filter((item) => item.id !== id);
     delete state.alignments[id];
+    delete state.secondaryAlignments[id];
     delete state.notes[id];
     state.connections = state.connections.filter((item) => item.from !== id && item.to !== id);
     state.assessments = state.assessments.filter((item) => item.paperId !== id);
@@ -3555,8 +3642,10 @@
     return (paperItem.roles || []).length ? paperItem.roles.join("; ") : "No role selected";
   }
 
-  function printableAlignmentValue(paperId, ploId) {
-    return normaliseAlignmentValue(state.alignments[paperId]?.[ploId]) || "–";
+  function printableAlignmentValue(paperId, ploId, cohort = "first") {
+    const paperItem = state.papers.find((item) => item.id === paperId);
+    const value = paperItem ? cohortAlignmentValue(paperItem, ploId, cohort) : "";
+    return `${value || "–"}${paperItem && isInheritedCohortAlignment(paperItem, ploId, cohort) ? " *" : ""}`;
   }
 
   function printableAccreditationHtml() {
@@ -3650,11 +3739,16 @@
     const sortedPapers = state.papers.slice().sort((a, b) => a.level - b.level || a.code.localeCompare(b.code));
     const reportDate = formatSnapshotTimestamp();
     const ploHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
-    const alignmentRows = sortedPapers.map((paperItem) => `<tr>
-      <td><b>${escapeHtml(paperCodeLabel(paperItem))}</b><br>${escapeHtml(paperItem.title)}<br><small>${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small></td>
-      ${state.plos.map((plo) => `<td>${escapeHtml(printableAlignmentValue(paperItem.id, plo.id))}</td>`).join("")}
-      <td>${printableText(state.notes[paperItem.id] || "")}</td>
-    </tr>`).join("");
+    const hasCohorts = sortedPapers.some(isDoubleCodedPaper);
+    const alignmentRows = sortedPapers.map((paperItem) => {
+      const cohorts = paperCohorts(paperItem);
+      return cohorts.map((cohort, index) => `<tr>
+        ${index === 0 ? `<td rowspan="${cohorts.length}"><b>${escapeHtml(paperCodeLabel(paperItem))}</b><br>${escapeHtml(paperItem.title)}${isDoubleCodedPaper(paperItem) ? "<br>Shared teaching delivery" : ""}<br><small>${escapeHtml(paperMetaLabel(paperItem))} · ${escapeHtml(paperItem.requirement)}</small></td>` : ""}
+        ${hasCohorts ? `<td><b>${escapeHtml(cohort.code)}</b><br>${escapeHtml(cohortMetaLabel(cohort))}</td>` : ""}
+        ${state.plos.map((plo) => `<td>${escapeHtml(printableAlignmentValue(paperItem.id, plo.id, cohort.key))}</td>`).join("")}
+        ${index === 0 ? `<td rowspan="${cohorts.length}">${printableText(state.notes[paperItem.id] || "")}</td>` : ""}
+      </tr>`).join("");
+    }).join("");
     const assessmentRows = state.assessments.map((item) => `<tr>
       <td>${escapeHtml(paperLabel(item.paperId))}</td>
       <td>${escapeHtml(assessmentSideLabel(item))}</td>
@@ -3692,7 +3786,7 @@
         return items.filter((item) => ids.includes(item.id)).map((item) => `${item.code}: ${item.text}`).join("\n") || "No connections selected";
       };
       const verticalRows = verticalAlignmentPlos(paperItem).map((plo) => `<tr>
-        <td><b>${escapeHtml(plo.code)}</b><br>${escapeHtml(plo.title)}</td>
+        <td><b>${escapeHtml(plo.code)}</b><br>${escapeHtml(plo.title)}<br>${escapeHtml(paperPloSupportLabel(paperItem, plo.id))}</td>
         <td>${printableText(selectedItems("ploClos", plo.id, clos))}</td>
         <td>${assessmentEvidenceHtml(paperItem, plo.id)}</td>
       </tr>`).join("") || `<tr><td colspan="3">No PLO support mapped for this paper.</td></tr>`;
@@ -3725,7 +3819,7 @@
             <tr><th>Review status</th><td colspan="3">${escapeHtml(paperItem.status || "")}</td></tr>
             <tr><th>Teaching staff</th><td colspan="3">${printableText(staffNamesForPaper(paperItem).join("; ") || "Not set")}</td></tr>
             <tr><th>Role / contribution</th><td colspan="3">${escapeHtml(printableRoles(paperItem))}</td></tr>
-            <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code} ${plo.level}`).join("; ") || "None mapped")}</td></tr>
+            <tr><th>Supported PLOs</th><td colspan="3">${escapeHtml(alignedPlos.map((plo) => `${plo.code}: ${plo.levelSummary}`).join("; ") || "None mapped")}</td></tr>
             <tr><th>Network relationships</th><td colspan="3">${printableText(relationships || "No network relationships mapped.")}</td></tr>
             <tr><th>Paper description</th><td colspan="3">${printableText(paperItem.description || "")}</td></tr>
             <tr><th>Course Learning Outcomes</th><td colspan="3">${printableText(designItems(paperItem, "clos").map((item) => `${item.code}: ${item.text}`).join("\n"))}</td></tr>
@@ -3783,7 +3877,8 @@
         <div class="two-col">${state.plos.map((plo) => `<article class="plo-card"><b>${escapeHtml(plo.code)} · ${escapeHtml(plo.title)}</b><p>${printableText(plo.description)}</p></article>`).join("") || "<p>No PLOs entered.</p>"}</div>
 
         <h2>Program Alignment Matrix</h2>
-        <table><thead><tr><th>Paper</th>${ploHead}<th>Discussion notes</th></tr></thead><tbody>${alignmentRows || `<tr><td colspan="${state.plos.length + 2}">No papers entered.</td></tr>`}</tbody></table>
+        <table><thead><tr><th>Paper / teaching delivery</th>${hasCohorts ? "<th>Code / student cohort</th>" : ""}${ploHead}<th>Discussion notes</th></tr></thead><tbody>${alignmentRows || `<tr><td colspan="${state.plos.length + 2 + Number(hasCohorts)}">No papers entered.</td></tr>`}</tbody></table>
+        ${hasCohorts ? "<p>* Carried over from the previous shared mapping; review and confirm for each cohort.</p>" : ""}
 
         <h2>Student Pathways And Programme Network</h2>
         <table><thead><tr><th>Relationship type</th><th>From paper</th><th>To paper</th></tr></thead><tbody>${printableRelationshipRows()}</tbody></table>
@@ -4121,6 +4216,7 @@
     }
     if (item[field] === nextValue) return false;
     item[field] = nextValue;
+    if (field === "structure") initialiseCohortAlignments(item, state.alignments, state.secondaryAlignments, state.plos);
     if (["code", "title", "status", "structure", "secondaryCode", "requirement", "deliveryMode", "nzqfLevel", "secondaryNzqfLevel", "level", "secondaryLevel", "points"].includes(field)) deferRender("paperList");
     if (["code", "title", "structure", "secondaryCode", "level", "secondaryLevel", "nzqfLevel", "secondaryNzqfLevel", "requirement", "deliveryMode", "points"].includes(field)) {
       deferRender("mapping", "canvas", "assessments");
@@ -4359,22 +4455,47 @@
     const ploCard = event.target.closest(".plo-card[data-plo-id]");
     if (ploCard) return editPlo(ploCard.dataset.ploId);
 
+    const confirmCohort = event.target.closest("[data-confirm-cohort]");
+    if (confirmCohort) {
+      if (!canEditWorkspace()) return;
+      const paperItem = state.papers.find((item) => item.id === confirmCohort.dataset.paperId);
+      if (!paperItem || !isDoubleCodedPaper(paperItem)) return;
+      const cohort = confirmCohort.dataset.confirmCohort === "second" ? "second" : "first";
+      const confirmed = [...(paperItem.inheritedCohortAlignments?.[cohort] || [])];
+      paperItem.inheritedCohortAlignments[cohort] = [];
+      renderMappingTable(); renderPaperEditor();
+      void logActivity("Confirmed carried-over cohort mapping", paperCohorts(paperItem).find((item) => item.key === cohort).code, { ploIds: confirmed });
+      return scheduleSave();
+    }
+
     const alignmentCell = event.target.closest(".alignment-cell");
     if (alignmentCell) {
       if (!canEditWorkspace()) return;
       const sequence = ["", "I", "D", "A"];
       const paperId = alignmentCell.dataset.paperId;
       const ploId = alignmentCell.dataset.ploId;
-      const current = normaliseAlignmentValue(state.alignments[paperId]?.[ploId]);
+      const paperItem = state.papers.find((item) => item.id === paperId);
+      if (!paperItem) return;
+      const cohort = alignmentCell.dataset.cohort === "second" ? "second" : "first";
+      const mappings = cohort === "second" ? state.secondaryAlignments : state.alignments;
+      const current = cohortAlignmentValue(paperItem, ploId, cohort);
+      const cohortItem = paperCohorts(paperItem).find((item) => item.key === cohort);
       const plo = state.plos.find((item) => item.id === ploId);
-      markDiscreteEditPresence({ key: `alignment-cell:${paperId}:${ploId}`, label: `${paperLabel(paperId)} × ${plo?.code || "PLO"}` });
+      const label = `${cohortItem?.code || paperItem.code} × ${plo?.code || "PLO"}`;
+      markDiscreteEditPresence({ key: `alignment-cell:${paperId}:${cohort}:${ploId}`, label });
       const next = sequence[(sequence.indexOf(current) + 1) % sequence.length];
-      state.alignments[paperId] ||= {};
-      state.alignments[paperId][ploId] = next;
+      mappings[paperId] ||= {};
+      mappings[paperId][ploId] = next;
+      if (paperItem.inheritedCohortAlignments?.[cohort]) paperItem.inheritedCohortAlignments[cohort] = paperItem.inheritedCohortAlignments[cohort].filter((id) => id !== ploId);
       alignmentCell.dataset.value = next;
+      alignmentCell.classList.remove("inherited-alignment");
+      alignmentCell.title = `${cohortItem?.code || paperItem.code} / ${plo?.code || "PLO"}`;
       alignmentCell.querySelector(".alignment-mark").textContent = next || "–";
+      if (!paperItem.inheritedCohortAlignments?.[cohort]?.length) {
+        $$("[data-cohort-notice]").filter((element) => element.dataset.paperId === paperId && element.dataset.cohortNotice === cohort).forEach((element) => { element.hidden = true; });
+      }
       renderPaperEditor();
-      void logActivity("Updated PLO alignment", `${paperLabel(paperId)} × ${plo?.code || "PLO"}`, { before: current || "blank", after: next || "blank" });
+      void logActivity("Updated PLO alignment", label, { cohort, before: current || "blank", after: next || "blank" });
       return scheduleSave();
     }
 

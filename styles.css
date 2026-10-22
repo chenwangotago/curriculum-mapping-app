@@ -538,6 +538,21 @@ tr:last-child td { border-bottom: 0; }
   font-weight: 700;
 }
 
+.shared-delivery-cell { background: #f8f9fe; border-left: 4px solid #9c87d9; vertical-align: middle; }
+.shared-delivery-label { display: inline-block; margin-top: 8px; padding: 5px 7px; color: #65509b; background: #eee8fc; border-radius: 7px; font-size: 11px; }
+.paper-cohort-cell { min-width: 180px; text-align: left; vertical-align: middle; }
+.paper-cohort-cell > b { display: block; color: var(--navy); font-size: 13px; }
+.paper-cohort-cell > span { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.mapping-cohort-first .paper-cohort-cell { background: #f8f5ff; }
+.mapping-cohort-second .paper-cohort-cell { background: #fffaf0; }
+.cohort-inherited-notice { margin-top: 8px; }
+.cohort-inherited-notice small { display: block; max-width: 190px; color: #79673e; font-size: 11px; line-height: 1.45; }
+.cohort-inherited-notice .button { margin-top: 7px; max-width: 190px; padding: 6px 8px; white-space: normal; text-align: left; font-size: 10.5px; }
+.cohort-plo-group { flex: 1 1 280px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcff; }
+.cohort-plo-group > b, .cohort-plo-group > small { display: block; margin-bottom: 8px; }
+.cohort-plo-group > b { color: var(--navy); font-size: 14px; }
+.cohort-plo-group > small { color: var(--muted); font-size: 11px; }
+
 .alignment-cell, .evidence-cell {
   min-width: 80px;
   text-align: center;
@@ -569,6 +584,8 @@ tr:last-child td { border-bottom: 0; }
 .alignment-cell[data-value="M"] .alignment-mark {
   color: #16634d; border-style: solid; border-color: #add7ca; background: #e4f6f0;
 }
+
+.alignment-cell.inherited-alignment .alignment-mark { border-style: dashed; }
 
 .discussion-note {
   min-width: 280px;
