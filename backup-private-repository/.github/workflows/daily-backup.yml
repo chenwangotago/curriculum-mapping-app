@@ -1,0 +1,51 @@
+name: Daily encrypted curriculum backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 * * *'
+      timezone: Pacific/Auckland
+
+permissions:
+  contents: read
+
+concurrency:
+  group: curriculum-daily-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    # This template must only run in the separate PRIVATE backup repository.
+    if: github.event.repository.private == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out backup tools
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Install pinned encryption library
+        run: |
+          python3 -m venv .backup-venv
+          .backup-venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
+      - name: Test encryption and recovery with fictional data
+        run: .backup-venv/bin/python -m unittest -v test_backup.py
+      - name: Export, encrypt, and verify every programme
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: .backup-venv/bin/python backup.py backup
+      - name: Store only the verified encrypted backup
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: curriculum-backup-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backups/*.cmap.enc
+            backups/backup-summary.json
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+      - name: Write a non-sensitive run summary
+        if: success()
+        run: .backup-venv/bin/python backup.py summary >> "$GITHUB_STEP_SUMMARY"

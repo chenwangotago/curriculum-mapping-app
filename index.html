@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=39">
+  <link rel="stylesheet" href="styles.css?v=40">
 </head>
 <body>
   <header class="app-header">
@@ -60,8 +60,9 @@
     <button class="tab" data-view="assessment">2. Assessments</button>
     <button class="tab" data-view="paper">3. Papers</button>
     <button class="tab" data-view="accreditation">4. External Accreditation</button>
-    <button class="tab" data-view="staff">5. Staff</button>
-    <button class="tab" data-view="actions">6. Actions</button>
+    <button class="tab" data-view="documents">5. Documents</button>
+    <button class="tab" data-view="staff">6. Staff</button>
+    <button class="tab" data-view="actions">7. Actions</button>
   </nav>
 
   <main>
@@ -288,6 +289,35 @@
       </section>
     </section>
 
+    <section class="view" id="view-documents">
+      <div class="view-heading">
+        <div>
+          <h2 id="documents-view-title">Programme Documents</h2>
+          <p id="documents-view-help">Keep programme designs, proposals, policies, and course documentation together in this workspace.</p>
+        </div>
+        <div class="view-actions">
+          <button class="button" id="upload-document-button" data-requires-edit>Upload document</button>
+          <button class="help-tip" type="button" data-help-key="documents" aria-label="Documents help">?</button>
+        </div>
+      </div>
+      <section class="workspace-section">
+        <div class="section-heading">
+          <h3 id="documents-library-title">Document Library</h3>
+          <p>Private to people with this workspace's links. PDF, Word, Excel, PowerPoint, text, and CSV files; up to 6 MB each. Upload a new file for a new document version.</p>
+        </div>
+        <div class="documents-toolbar">
+          <label class="search-field"><span>Find a document</span><input type="search" id="document-search" placeholder="Title, filename, version, or notes"></label>
+          <label class="search-field"><span>Category</span><select id="document-category-filter"><option value="">All categories</option><option>Programme design</option><option>Proposal</option><option>Policy</option><option>Course documentation</option><option>Other</option></select></label>
+          <label class="documents-archived-toggle"><input type="checkbox" id="document-show-archived"> Show archived</label>
+          <button type="button" class="button" id="refresh-documents-button">Refresh list</button>
+        </div>
+        <p id="documents-status" class="documents-status" role="status" aria-live="polite"></p>
+        <div id="documents-library" class="documents-grid"></div>
+        <p class="documents-backup-note">Files are stored separately from the mapping. Save version, Export JSON, and Print / PDF do not back up the uploaded files. Keep a separate copy of the originals. Archiving hides a file from the active library but does not delete it.</p>
+      </section>
+      <input type="file" id="document-file-input" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv" hidden>
+    </section>
+
     <section class="view" id="view-staff">
       <div class="view-heading">
         <div>
@@ -354,6 +384,6 @@
     <p id="help-popover-text"></p>
   </div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=43"></script>
+  <script src="app.js?v=44"></script>
 </body>
 </html>

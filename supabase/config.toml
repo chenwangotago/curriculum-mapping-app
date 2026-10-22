@@ -1,0 +1,6 @@
+project_id = "curriculum-mapping-app"
+
+[functions.curriculum-documents]
+entrypoint = "./functions/curriculum-documents/index.js"
+# Workspace capability tokens are checked inside the function for every request.
+verify_jwt = false

@@ -11,6 +11,11 @@
   const PAPER_STRUCTURES = ["Single code", "Double-coded"];
   const DELIVERY_MODES = ["On campus", "Distance learning", "Hybrid / block"];
   const ASSESSMENT_SIDES = ["Whole paper", "First code side", "Second code side"];
+  const DOCUMENT_CATEGORIES = ["Programme design", "Proposal", "Policy", "Course documentation", "Other"];
+  const DOCUMENT_EXTENSIONS = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv"];
+  const DOCUMENT_MAX_BYTES = 6 * 1024 * 1024;
+  const documentLibrary = { workspace: "", token: "", items: [], loaded: false, loading: false, error: "", request: 0 };
+  let documentsPollTimer = null;
   const DESIGN_ITEM_FIELDS = {
     clos: { items: "courseOutcomes", text: "learningOutcomes", prefix: "CLO", label: "Course learning outcome" },
     activities: { items: "learningActivityItems", text: "learningActivities", prefix: "LA", label: "Learning activity" },
@@ -55,8 +60,9 @@
       assessment: "2. Assessments",
       paper: "3. Papers",
       accreditation: "4. External Accreditation",
-      staff: "5. Staff",
-      actions: "6. Actions"
+      documents: "5. Documents",
+      staff: "6. Staff",
+      actions: "7. Actions"
     },
     programme: {
       title: "Programme Whole Picture",
@@ -126,6 +132,12 @@
       summaryHelp: "Each row shows the standards linked to one PLO across all sets. A link records the team's alignment judgement, not an accreditation decision.",
       addSet: "Add standards set"
     },
+    documents: {
+      title: "Programme Documents",
+      help: "Keep programme designs, proposals, policies, and course documentation together in this workspace.",
+      libraryTitle: "Document Library",
+      upload: "Upload document"
+    },
     staff: {
       title: "Staff",
       help: "Summarise who teaches which papers, how many paper points are attached, and profile notes for planning discussion.",
@@ -157,7 +169,7 @@
     versions: "Open saved versions and restore an earlier point if the team needs to go back.",
     newWorkspace: "Start a separate workspace for another programme. This creates a new programme URL when you are already in cloud mode.",
     importJson: "Import a JSON backup into the current dashboard. Use carefully because it replaces the current workspace content.",
-    exportJson: "Download a complete JSON backup for archiving, migration, or recovering the workspace later.",
+    exportJson: "Download this workspace's current mapping data for archiving or import. Uploaded files, cloud review comments, saved versions, and the admin log are separate and require the independent backup process.",
     printPdf: "Prepare a printable report. In the browser print dialog, choose landscape and Save as PDF when needed.",
     addPlo: "Add a new programme learning outcome. The PLO order here also controls the order used in mapping tables.",
     addPaper: "Add a new paper/course to the programme map. You can complete details later in the Papers tab.",
@@ -184,6 +196,7 @@
     internalAlignment: "For each CLO, select the learning activities and assessment items connected to it. These are connections only. Direct/partial PLO evidence is recorded in the Assessments tab.",
     externalStandards: "Add a separate set for each professional, university, or qualification framework. Enter the version and source, then add its individual standards and tick the PLOs that support each one. Blank means no link recorded.",
     externalSummary: "Read across each PLO to see the standards it supports in every set. Download the summary CSV for Excel, or the detailed CSV for individual standards, PLO links, and mapping notes.",
+    documents: "Upload documents to this programme's private cloud library. Edit links can upload, edit descriptions, archive, and restore files. Review-only links can download and comment. Files stay separate from mapping versions and JSON exports; keep your own copy of the originals. This is file storage, not an online Word editor or a malware scanner.",
     diagnosisNote: "Use diagnosis notes for issues, decisions, or questions that should carry through to the Actions page.",
     staffSummary: "Staff cards are generated from Teaching staff entered in Papers and sorted by the number of papers attached.",
     staffProfile: "Use staff profile fields to capture research interests, teaching strengths, assessment experience, and student cohorts. Empty boxes use auto-suggested text from paper and assessment information where available.",
@@ -535,8 +548,8 @@
     const base = clone(DEFAULT_WORDING);
     const wording = mergeObject(base, value);
     wording.tabs = mergeObject(base.tabs, value.tabs);
-    if (wording.tabs.staff === "4. Staff") wording.tabs.staff = base.tabs.staff;
-    if (wording.tabs.actions === "5. Actions") wording.tabs.actions = base.tabs.actions;
+    if (["4. Staff", "5. Staff"].includes(wording.tabs.staff)) wording.tabs.staff = base.tabs.staff;
+    if (["5. Actions", "6. Actions"].includes(wording.tabs.actions)) wording.tabs.actions = base.tabs.actions;
     if (/staff/i.test(wording.tabs.staff || "") && /workload/i.test(wording.tabs.staff || "")) {
       wording.tabs.staff = base.tabs.staff;
     }
@@ -550,6 +563,7 @@
     wording.assessment = mergeObject(base.assessment, value.assessment);
     wording.paper = mergeObject(base.paper, value.paper);
     wording.accreditation = mergeObject(base.accreditation, value.accreditation);
+    wording.documents = mergeObject(base.documents, value.documents);
     wording.staff = mergeObject(base.staff, value.staff);
     if (/teaching staff\s*&\s*workload/i.test(wording.staff.title || "")) wording.staff.title = base.staff.title;
     if (/staff workload summary/i.test(wording.staff.summaryTitle || "")) wording.staff.summaryTitle = base.staff.summaryTitle;
@@ -1121,6 +1135,7 @@
       { key: "paper:internal", title: "Internal Alignment Map", selector: '#paper-alignment-maps [aria-label="Internal alignment map"] > h3' },
       { key: "paper:diagnosis", title: "Diagnosis Note", selector: "#paper-editor .diagnosis-section > h3" },
       { key: "accreditation:summary", title: w.accreditation.summaryTitle, selector: "#accreditation-summary-title" },
+      { key: "documents:library", title: w.documents.libraryTitle, selector: "#documents-library-title" },
       ...state.externalFrameworks.map((framework) => ({
         key: `accreditation:framework-${encodeURIComponent(framework.id)}`, title: externalFrameworkLabel(framework),
         selector: `.external-framework[data-framework-id="${CSS.escape(framework.id)}"] .external-framework-heading > h3`
@@ -1167,7 +1182,7 @@
     if (view === "paper" && selectedPaperId) values.push(`paper:${encodeURIComponent(selectedPaperId)}`);
     commentBlockDefinitions().filter((block) => block.key.startsWith(`${view}:`) && $(block.selector))
       .forEach((block) => values.push(blockCommentTarget(block)));
-    ["programme", "assessment", "paper", "accreditation", "staff", "actions"].forEach((key) => values.push(`page:${key}`));
+    ["programme", "assessment", "paper", "accreditation", "documents", "staff", "actions"].forEach((key) => values.push(`page:${key}`));
     if (selectedTarget) values.push(selectedTarget);
     return [...new Set(values)].map((value) => ({ value, label: commentTargetLabel(value) }));
   }
@@ -1828,6 +1843,7 @@
     byId("new-template-button").hidden = !cloud.enabled || !cloud.canManageTemplate;
     byId("import-button").hidden = cloud.enabled && !cloud.canManageTemplate;
     setReadOnlyFields(lockForReadOnly);
+    updateDocumentControls();
     renderBlockCommentButtons();
   }
 
@@ -1846,6 +1862,12 @@
     $$("main [contenteditable]").forEach((field) => {
       field.setAttribute("contenteditable", readOnly ? "false" : "true");
     });
+    // Search and library filters do not change workspace data.
+    byId("document-search").readOnly = false;
+    byId("document-category-filter").disabled = false;
+    byId("document-show-archived").disabled = false;
+    byId("document-show-archived").readOnly = false;
+    updateDocumentControls();
   }
 
   function applyReadOnlyStateSoon() {
@@ -1924,6 +1946,7 @@
     renderPaperEditor();
     renderAssessments();
     renderAccreditation();
+    renderDocuments();
     renderStaffWorkload();
     renderActions();
     applyReadOnlyStateSoon();
@@ -1959,6 +1982,7 @@
     $$("[data-view='assessment']").forEach((element) => { element.textContent = w.tabs.assessment; });
     $$("[data-view='paper']").forEach((element) => { element.textContent = w.tabs.paper; });
     $$("[data-view='accreditation']").forEach((element) => { element.textContent = w.tabs.accreditation; });
+    $$("[data-view='documents']").forEach((element) => { element.textContent = w.tabs.documents; });
     $$("[data-view='staff']").forEach((element) => { element.textContent = w.tabs.staff; });
     $$("[data-view='actions']").forEach((element) => { element.textContent = w.tabs.actions; });
 
@@ -2002,6 +2026,10 @@
     setText("accreditation-summary-title", w.accreditation.summaryTitle);
     setText("accreditation-summary-help", w.accreditation.summaryHelp);
     setText("add-standards-set-button", w.accreditation.addSet);
+    setText("documents-view-title", w.documents.title);
+    setText("documents-view-help", w.documents.help);
+    setText("documents-library-title", w.documents.libraryTitle);
+    setText("upload-document-button", w.documents.upload);
 
     setText("staff-view-title", w.staff.title);
     setText("staff-view-help", w.staff.help);
@@ -2893,6 +2921,174 @@
     });
   }
 
+  function currentDocuments() {
+    return documentLibrary.workspace === cloud.workspace && documentLibrary.token === cloud.token ? documentLibrary.items : [];
+  }
+
+  function documentSizeLabel(bytes) {
+    return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function updateDocumentControls() {
+    const loaded = documentLibrary.loaded && documentLibrary.workspace === cloud.workspace && documentLibrary.token === cloud.token;
+    byId("upload-document-button").disabled = !cloud.enabled || !cloud.loaded || !cloud.canEdit || documentLibrary.loading || !loaded;
+    byId("refresh-documents-button").disabled = !cloud.enabled || !cloud.loaded || documentLibrary.loading;
+  }
+
+  function renderDocuments() {
+    const library = byId("documents-library");
+    const inWorkspace = documentLibrary.workspace === cloud.workspace && documentLibrary.token === cloud.token;
+    updateDocumentControls();
+    if (!cloud.enabled || !cloud.loaded) {
+      library.innerHTML = `<div class="empty-state">Open this programme's cloud workspace to upload or download documents. Files are not stored in this browser or in the public GitHub repository.</div>`;
+      setText("documents-status", "Cloud workspace required");
+      return;
+    }
+    if (!inWorkspace || !documentLibrary.loaded) {
+      library.innerHTML = `<div class="empty-state">${documentLibrary.error && inWorkspace ? "The document library could not be loaded. Your mapping data is unchanged." : "Open this tab or refresh the list to load this programme's documents."}</div>`;
+    } else {
+      const search = byId("document-search").value.trim().toLowerCase();
+      const category = byId("document-category-filter").value;
+      const showArchived = byId("document-show-archived").checked;
+      const items = currentDocuments().filter((item) => (showArchived || !item.archived_at)
+        && (!category || item.category === category)
+        && [item.title, item.filename, item.version, item.notes, item.uploaded_by].join(" ").toLowerCase().includes(search));
+      library.innerHTML = items.map((item) => `<article class="document-card ${item.archived_at ? "archived" : ""}" data-document-id="${escapeHtml(item.id)}">
+        <div class="document-card-heading"><span class="document-file-type">${escapeHtml(item.filename.split(".").pop().toUpperCase())}</span><span>${escapeHtml(item.category)}</span>${item.archived_at ? '<span class="document-archived-label">Archived</span>' : ""}</div>
+        <h4>${escapeHtml(item.title)}</h4>
+        <p class="document-filename">${escapeHtml(item.filename)} · ${documentSizeLabel(item.size_bytes)}</p>
+        ${item.version ? `<p class="document-version">Version: ${escapeHtml(item.version)}</p>` : ""}
+        ${item.notes ? `<p class="document-notes">${escapeHtml(item.notes)}</p>` : ""}
+        <p class="document-uploaded">Uploaded ${escapeHtml(formatSnapshotTimestamp(new Date(item.created_at)))}${item.uploaded_by ? ` · ${escapeHtml(item.uploaded_by)}` : ""}</p>
+        <div class="document-actions"><button type="button" class="button" data-download-document="${escapeHtml(item.id)}">Download</button>
+          ${cloud.canEdit ? `<button type="button" class="button" data-edit-document="${escapeHtml(item.id)}" data-requires-edit>Edit details</button><button type="button" class="button" data-archive-document="${escapeHtml(item.id)}" data-requires-edit>${item.archived_at ? "Restore" : "Archive"}</button>` : ""}
+        </div>
+      </article>`).join("") || `<div class="empty-state">${currentDocuments().length ? "No documents match these filters. Archived files appear when Show archived is selected." : "No documents yet. Upload a programme design, proposal, policy, or course document to begin."}</div>`;
+      setText("documents-status", `${items.length} document${items.length === 1 ? "" : "s"} shown${documentLibrary.loading ? " · Refreshing..." : ""}`);
+    }
+    if (inWorkspace && documentLibrary.error) setText("documents-status", documentLibrary.error);
+    else if (inWorkspace && documentLibrary.loading && !documentLibrary.loaded) setText("documents-status", "Loading documents...");
+  }
+
+  async function documentRequest(action, values = {}, file = null) {
+    if (!cloud.enabled || !cloud.loaded || !cloud.client) throw new Error("Open a cloud workspace before using Documents.");
+    let body = { ...values, action, workspace: cloud.workspace, token: cloud.token };
+    if (file) {
+      const form = new FormData();
+      Object.entries(body).forEach(([key, value]) => form.set(key, String(value ?? "")));
+      form.set("file", file);
+      body = form;
+    }
+    const { data, error } = await cloud.client.functions.invoke("curriculum-documents", { body });
+    if (error) {
+      let message = "Document storage is unavailable. The admin needs to enable the Documents backend in Supabase; mapping data is unaffected.";
+      if (error.context?.json) {
+        try { message = (await error.context.json()).error || message; } catch { /* Keep the safe fallback for non-JSON gateway responses. */ }
+      }
+      throw new Error(message);
+    }
+    if (!data || data.error) throw new Error(data?.error || "No response from document storage.");
+    return data;
+  }
+
+  async function refreshDocuments(silent = false) {
+    if (!cloud.enabled || !cloud.loaded || !cloud.client) return renderDocuments();
+    const workspace = cloud.workspace, token = cloud.token;
+    const sameWorkspace = documentLibrary.workspace === workspace && documentLibrary.token === token;
+    if (documentLibrary.loading && sameWorkspace) return;
+    if (!sameWorkspace) Object.assign(documentLibrary, { workspace, token, items: [], loaded: false, error: "" });
+    const request = ++documentLibrary.request;
+    documentLibrary.loading = true;
+    if (!silent) renderDocuments();
+    try {
+      const result = await documentRequest("list");
+      if (request !== documentLibrary.request || workspace !== cloud.workspace || token !== cloud.token) return;
+      documentLibrary.items = Array.isArray(result.documents) ? result.documents : [];
+      documentLibrary.loaded = true;
+      documentLibrary.error = "";
+    } catch (error) {
+      if (request !== documentLibrary.request || workspace !== cloud.workspace || token !== cloud.token) return;
+      documentLibrary.error = error.message;
+    } finally {
+      if (request === documentLibrary.request) {
+        documentLibrary.loading = false;
+        renderDocuments();
+      }
+    }
+  }
+
+  function documentFields(item) {
+    return [
+      { name: "title", label: "Document title", value: item.title || "", required: true },
+      { name: "category", label: "Category", value: item.category || "Programme design", type: "select", options: DOCUMENT_CATEGORIES },
+      { name: "version", label: "Version / date (optional)", value: item.version || "" },
+      { name: "notes", label: "Description / notes (optional)", value: item.notes || "", type: "textarea" }
+    ];
+  }
+
+  function uploadDocument(file) {
+    if (!canEditWorkspace() || !file) return;
+    if (!cloud.enabled || !cloud.loaded) return toast("Open a cloud workspace before uploading documents.");
+    const extension = file.name.split(".").pop().toLowerCase();
+    if (!DOCUMENT_EXTENSIONS.includes(extension)) return alert("Choose a PDF, Word, Excel, PowerPoint, text, or CSV file. Macro-enabled Office extensions are not supported.");
+    if (!file.size || file.size > DOCUMENT_MAX_BYTES) return alert("Choose a non-empty file no larger than 6 MB.");
+    const workspace = cloud.workspace, token = cloud.token;
+    openDialog({
+      title: "Upload Document",
+      submitLabel: "Upload",
+      fields: [
+        { type: "html", html: `<p>${escapeHtml(file.name)} · ${documentSizeLabel(file.size)}</p><p class="muted-text">The original file is kept in private cloud storage. Upload trusted files only; documents are not scanned for malware or edited inside the dashboard.</p>` },
+        ...documentFields({ title: file.name.replace(/\.[^.]+$/, "") })
+      ],
+      async onSave(values) {
+        if (!canEditWorkspace() || workspace !== cloud.workspace || token !== cloud.token) throw new Error("Workspace changed. Select the file again in the intended workspace.");
+        const author = ensureSessionName("upload documents");
+        await documentRequest("upload", { ...values, author }, file);
+        await refreshDocuments();
+        toast("Document uploaded to this programme's private library");
+      }
+    });
+  }
+
+  function editDocument(id) {
+    if (!canEditWorkspace()) return;
+    const item = currentDocuments().find((entry) => entry.id === id);
+    if (!item) return;
+    const workspace = cloud.workspace, token = cloud.token;
+    openDialog({
+      title: "Document Details",
+      fields: documentFields(item),
+      async onSave(values) {
+        if (!canEditWorkspace() || workspace !== cloud.workspace || token !== cloud.token) throw new Error("Workspace changed. Reopen this document in the intended workspace.");
+        await documentRequest("update", { ...values, id, expectedUpdatedAt: item.updated_at, author: ensureSessionName("edit document details") });
+        await refreshDocuments();
+        toast("Document details saved");
+      }
+    });
+  }
+
+  async function archiveDocument(id) {
+    if (!canEditWorkspace()) return;
+    const item = currentDocuments().find((entry) => entry.id === id);
+    if (!item || !confirm(item.archived_at ? `Restore "${item.title}" to the active library?` : `Archive "${item.title}"? The file is kept and can be restored with Show archived.`)) return;
+    try {
+      await documentRequest("archive", { id, archived: !item.archived_at, expectedUpdatedAt: item.updated_at, author: ensureSessionName("organise documents") });
+      await refreshDocuments();
+      toast(item.archived_at ? "Document restored" : "Document archived, not deleted");
+    } catch (error) { alert(error.message); }
+  }
+
+  async function downloadDocument(id) {
+    try {
+      const { url } = await documentRequest("download", { id });
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" || parsed.origin !== new URL(CONFIG.supabaseUrl).origin || !parsed.pathname.startsWith("/storage/v1/object/sign/")) throw new Error("Invalid document download address.");
+      const link = document.createElement("a");
+      link.href = parsed.href; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.click();
+    } catch (error) { alert(error.message); }
+  }
+
   function renderAccreditation() {
     const w = getWording().accreditation;
     byId("external-frameworks").innerHTML = state.externalFrameworks.map((framework) => {
@@ -3288,6 +3484,13 @@
       renderPaperEditor();
     }
     if (view === "staff") renderStaffWorkload();
+    clearInterval(documentsPollTimer);
+    if (view === "documents") {
+      void refreshDocuments();
+      documentsPollTimer = setInterval(() => {
+        if (!document.hidden && !byId("edit-dialog").open) void refreshDocuments(true);
+      }, 12000);
+    }
     applyReadOnlyStateSoon();
   }
 
@@ -3514,6 +3717,7 @@
         { name: "assessmentTab", label: "Assessments tab label", value: w.tabs.assessment },
         { name: "paperTab", label: "Papers tab label", value: w.tabs.paper },
         { name: "accreditationTab", label: "External accreditation tab label", value: w.tabs.accreditation },
+        { name: "documentsTab", label: "Documents tab label", value: w.tabs.documents },
         { name: "staffTab", label: "Staff tab label", value: w.tabs.staff },
         { name: "actionsTab", label: "Actions tab label", value: w.tabs.actions },
         { name: "programmeTitle", label: "Program page title", value: w.programme.title },
@@ -3541,6 +3745,9 @@
         { name: "accreditationHelp", label: "External accreditation page description", value: w.accreditation.help, type: "textarea" },
         { name: "externalSummaryTitle", label: "External standards summary title", value: w.accreditation.summaryTitle },
         { name: "externalSummaryHelp", label: "External standards summary description", value: w.accreditation.summaryHelp, type: "textarea" },
+        { name: "documentsTitle", label: "Documents page title", value: w.documents.title },
+        { name: "documentsHelp", label: "Documents page description", value: w.documents.help, type: "textarea" },
+        { name: "documentsLibraryTitle", label: "Document library section title", value: w.documents.libraryTitle },
         { name: "staffTitle", label: "Staff page title", value: w.staff.title },
         { name: "staffHelp", label: "Staff page description", value: w.staff.help, type: "textarea" },
         { name: "actionsTitle", label: "Actions page title", value: w.actions.title },
@@ -3553,6 +3760,7 @@
             assessment: values.assessmentTab,
             paper: values.paperTab,
             accreditation: values.accreditationTab,
+            documents: values.documentsTab,
             staff: values.staffTab,
             actions: values.actionsTab
           },
@@ -3598,6 +3806,12 @@
             help: values.accreditationHelp,
             summaryTitle: values.externalSummaryTitle,
             summaryHelp: values.externalSummaryHelp
+          },
+          documents: {
+            ...getWording().documents,
+            title: values.documentsTitle,
+            help: values.documentsHelp,
+            libraryTitle: values.documentsLibraryTitle
           },
           staff: {
             ...getWording().staff,
@@ -4978,6 +5192,25 @@
   byId("add-standards-set-button").addEventListener("click", () => editExternalFramework());
   byId("export-accreditation-summary").addEventListener("click", () => exportAccreditationCsv());
   byId("export-accreditation-detail").addEventListener("click", () => exportAccreditationCsv(true));
+  byId("upload-document-button").addEventListener("click", () => {
+    if (canEditWorkspace() && cloud.enabled && cloud.loaded) byId("document-file-input").click();
+  });
+  byId("document-file-input").addEventListener("change", (event) => {
+    uploadDocument(event.target.files[0]);
+    event.target.value = "";
+  });
+  byId("document-search").addEventListener("input", renderDocuments);
+  byId("document-category-filter").addEventListener("change", renderDocuments);
+  byId("document-show-archived").addEventListener("change", renderDocuments);
+  byId("refresh-documents-button").addEventListener("click", () => { void refreshDocuments(); });
+  byId("documents-library").addEventListener("click", (event) => {
+    const download = event.target.closest("[data-download-document]");
+    if (download) return void downloadDocument(download.dataset.downloadDocument);
+    const edit = event.target.closest("[data-edit-document]");
+    if (edit) return editDocument(edit.dataset.editDocument);
+    const archive = event.target.closest("[data-archive-document]");
+    if (archive) void archiveDocument(archive.dataset.archiveDocument);
+  });
   byId("programme-settings-button").addEventListener("click", editProgrammeSettings);
   byId("wording-settings-button").addEventListener("click", editTemplateWording);
   byId("create-cloud-workspace-button").addEventListener("click", createCloudWorkspace);
