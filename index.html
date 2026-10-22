@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=37">
+  <link rel="stylesheet" href="styles.css?v=38">
 </head>
 <body>
   <header class="app-header">
@@ -59,8 +59,9 @@
     <button class="tab active" data-view="programme">1. Program</button>
     <button class="tab" data-view="assessment">2. Assessments</button>
     <button class="tab" data-view="paper">3. Papers</button>
-    <button class="tab" data-view="staff">4. Staff</button>
-    <button class="tab" data-view="actions">5. Actions</button>
+    <button class="tab" data-view="accreditation">4. External Accreditation</button>
+    <button class="tab" data-view="staff">5. Staff</button>
+    <button class="tab" data-view="actions">6. Actions</button>
   </nav>
 
   <main>
@@ -260,6 +261,33 @@
       </div>
     </section>
 
+    <section class="view" id="view-accreditation">
+      <div class="view-heading">
+        <div>
+          <h2 id="accreditation-view-title">External Standards &amp; Accreditation</h2>
+          <p id="accreditation-view-help">Map programme learning outcomes to professional standards, university graduate attributes, and qualification frameworks.</p>
+        </div>
+        <div class="view-actions">
+          <button class="button" id="add-standards-set-button" data-requires-edit>Add standards set</button>
+          <button class="help-tip" type="button" data-help-key="externalStandards" aria-label="External standards mapping help">?</button>
+        </div>
+      </div>
+      <div id="external-frameworks"></div>
+      <section class="workspace-section">
+        <div class="section-heading">
+          <h3 id="accreditation-summary-title">PLO Summary Across Standards Sets</h3>
+          <button class="help-tip" type="button" data-help-key="externalSummary" aria-label="External standards summary help">?</button>
+          <p id="accreditation-summary-help">Each row shows the standards linked to one PLO across all sets. A link records the team's alignment judgement, not an accreditation decision.</p>
+        </div>
+        <div class="external-export-actions">
+          <button class="button" id="export-accreditation-summary">Download summary CSV</button>
+          <button class="button" id="export-accreditation-detail">Download detailed mapping CSV</button>
+          <span class="muted-text">CSV files can be opened in Excel.</span>
+        </div>
+        <div class="table-wrap" id="accreditation-summary"></div>
+      </section>
+    </section>
+
     <section class="view" id="view-staff">
       <div class="view-heading">
         <div>
@@ -326,6 +354,6 @@
     <p id="help-popover-text"></p>
   </div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=41"></script>
+  <script src="app.js?v=42"></script>
 </body>
 </html>

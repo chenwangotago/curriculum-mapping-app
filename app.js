@@ -54,8 +54,9 @@
       programme: "1. Program",
       assessment: "2. Assessments",
       paper: "3. Papers",
-      staff: "4. Staff",
-      actions: "5. Actions"
+      accreditation: "4. External Accreditation",
+      staff: "5. Staff",
+      actions: "6. Actions"
     },
     programme: {
       title: "Programme Whole Picture",
@@ -118,6 +119,13 @@
       addPaper: "Add paper",
       findPaper: "Find a paper"
     },
+    accreditation: {
+      title: "External Standards & Accreditation",
+      help: "Map programme learning outcomes to professional standards, university graduate attributes, and qualification frameworks.",
+      summaryTitle: "PLO Summary Across Standards Sets",
+      summaryHelp: "Each row shows the standards linked to one PLO across all sets. A link records the team's alignment judgement, not an accreditation decision.",
+      addSet: "Add standards set"
+    },
     staff: {
       title: "Staff",
       help: "Summarise who teaches which papers, how many paper points are attached, and profile notes for planning discussion.",
@@ -174,6 +182,8 @@
     paperAssessment: "These assessment rows are shared with the Assessment tab. Editing here updates the programme assessment map.",
     verticalAlignment: "Select the CLOs that support each PLO identified in the Program discussion. Assessment evidence is carried from the Assessments tab; direct/partial judgements are edited there.",
     internalAlignment: "For each CLO, select the learning activities and assessment items connected to it. These are connections only. Direct/partial PLO evidence is recorded in the Assessments tab.",
+    externalStandards: "Add a separate set for each professional, university, or qualification framework. Enter the version and source, then add its individual standards and tick the PLOs that support each one. Blank means no link recorded.",
+    externalSummary: "Read across each PLO to see the standards it supports in every set. Download the summary CSV for Excel, or the detailed CSV for individual standards, PLO links, and mapping notes.",
     diagnosisNote: "Use diagnosis notes for issues, decisions, or questions that should carry through to the Actions page.",
     staffSummary: "Staff cards are generated from Teaching staff entered in Papers and sorted by the number of papers attached.",
     staffProfile: "Use staff profile fields to capture research interests, teaching strengths, assessment experience, and student cohorts. Empty boxes use auto-suggested text from paper and assessment information where available.",
@@ -525,6 +535,8 @@
     const base = clone(DEFAULT_WORDING);
     const wording = mergeObject(base, value);
     wording.tabs = mergeObject(base.tabs, value.tabs);
+    if (wording.tabs.staff === "4. Staff") wording.tabs.staff = base.tabs.staff;
+    if (wording.tabs.actions === "5. Actions") wording.tabs.actions = base.tabs.actions;
     if (/staff/i.test(wording.tabs.staff || "") && /workload/i.test(wording.tabs.staff || "")) {
       wording.tabs.staff = base.tabs.staff;
     }
@@ -537,6 +549,7 @@
     wording.network = mergeObject(base.network, value.network);
     wording.assessment = mergeObject(base.assessment, value.assessment);
     wording.paper = mergeObject(base.paper, value.paper);
+    wording.accreditation = mergeObject(base.accreditation, value.accreditation);
     wording.staff = mergeObject(base.staff, value.staff);
     if (/teaching staff\s*&\s*workload/i.test(wording.staff.title || "")) wording.staff.title = base.staff.title;
     if (/staff workload summary/i.test(wording.staff.summaryTitle || "")) wording.staff.summaryTitle = base.staff.summaryTitle;
@@ -777,6 +790,31 @@
     }
   }
 
+  function normaliseExternalFrameworks(input, plos) {
+    const validPloIds = new Set(plos.map((plo) => plo.id));
+    const frameworkIds = new Set();
+    return (Array.isArray(input) ? input : []).filter((item) => item && typeof item === "object").map((item, index) => {
+      let id = String(item.id || `framework-${index + 1}`);
+      while (frameworkIds.has(id)) id += "-copy";
+      frameworkIds.add(id);
+      const standardIds = new Set();
+      const standards = (Array.isArray(item.standards) ? item.standards : []).filter((row) => row && typeof row === "object").map((row, position) => {
+        let standardId = String(row.id || `${id}-standard-${position + 1}`);
+        while (standardIds.has(standardId)) standardId += "-copy";
+        standardIds.add(standardId);
+        return {
+          ...row, id: standardId, code: String(row.code || `S${position + 1}`), title: String(row.title || ""),
+          description: String(row.description || ""), notes: String(row.notes || ""),
+          ploIds: [...new Set((Array.isArray(row.ploIds) ? row.ploIds : []).filter((ploId) => validPloIds.has(ploId)))]
+        };
+      });
+      return {
+        ...item, id, name: String(item.name || "Untitled standards set"), organisation: String(item.organisation || ""),
+        version: String(item.version || ""), source: String(item.source || ""), notes: String(item.notes || ""), standards
+      };
+    });
+  }
+
   function normaliseState(input) {
     const base = clone(sampleData);
     const meta = { ...base.meta, ...(input.meta || {}) };
@@ -833,6 +871,7 @@
       connections: normaliseConnections(input.connections, validPaperIds),
       assessments,
       actions,
+      externalFrameworks: normaliseExternalFrameworks(input.externalFrameworks, Array.isArray(input.plos) ? input.plos : base.plos),
       staffNotes: input.staffNotes && typeof input.staffNotes === "object" && !Array.isArray(input.staffNotes) ? input.staffNotes : {},
       staffProfiles: normaliseStaffProfiles(input.staffProfiles),
       wording: normaliseWording(input.wording)
@@ -933,6 +972,7 @@
       connections: [],
       assessments: [],
       actions: [],
+      externalFrameworks: [],
       staffNotes: {},
       staffProfiles: {},
       wording: normaliseWording(wording)
@@ -1057,6 +1097,11 @@
       { key: "paper:vertical", title: "Vertical Alignment Validation", selector: '#paper-alignment-maps [aria-label="Vertical alignment validation"] > h3' },
       { key: "paper:internal", title: "Internal Alignment Map", selector: '#paper-alignment-maps [aria-label="Internal alignment map"] > h3' },
       { key: "paper:diagnosis", title: "Diagnosis Note", selector: "#paper-editor .diagnosis-section > h3" },
+      { key: "accreditation:summary", title: w.accreditation.summaryTitle, selector: "#accreditation-summary-title" },
+      ...state.externalFrameworks.map((framework) => ({
+        key: `accreditation:framework-${encodeURIComponent(framework.id)}`, title: externalFrameworkLabel(framework),
+        selector: `.external-framework[data-framework-id="${CSS.escape(framework.id)}"] .external-framework-heading > h3`
+      })),
       { key: "staff:summary", title: w.staff.summaryTitle, selector: "#staff-summary-title" },
       { key: "actions:diagnosis", title: w.actions.diagnosisTitle, selector: "#diagnosis-notes-title" }
     ];
@@ -1099,7 +1144,7 @@
     if (view === "paper" && selectedPaperId) values.push(`paper:${encodeURIComponent(selectedPaperId)}`);
     commentBlockDefinitions().filter((block) => block.key.startsWith(`${view}:`) && $(block.selector))
       .forEach((block) => values.push(blockCommentTarget(block)));
-    ["programme", "assessment", "paper", "staff", "actions"].forEach((key) => values.push(`page:${key}`));
+    ["programme", "assessment", "paper", "accreditation", "staff", "actions"].forEach((key) => values.push(`page:${key}`));
     if (selectedTarget) values.push(selectedTarget);
     return [...new Set(values)].map((value) => ({ value, label: commentTargetLabel(value) }));
   }
@@ -1855,6 +1900,7 @@
     renderPaperList();
     renderPaperEditor();
     renderAssessments();
+    renderAccreditation();
     renderStaffWorkload();
     renderActions();
     applyReadOnlyStateSoon();
@@ -1873,6 +1919,7 @@
     if (targets.has("canvas")) renderCanvas();
     if (targets.has("paperEditor")) renderPaperEditor();
     if (targets.has("assessments")) renderAssessments();
+    if (targets.has("accreditation")) renderAccreditation();
     if (targets.has("staff")) renderStaffWorkload();
     if (targets.has("actions")) renderActions();
     applyReadOnlyStateSoon();
@@ -1888,6 +1935,7 @@
     $$("[data-view='programme']").forEach((element) => { element.textContent = w.tabs.programme; });
     $$("[data-view='assessment']").forEach((element) => { element.textContent = w.tabs.assessment; });
     $$("[data-view='paper']").forEach((element) => { element.textContent = w.tabs.paper; });
+    $$("[data-view='accreditation']").forEach((element) => { element.textContent = w.tabs.accreditation; });
     $$("[data-view='staff']").forEach((element) => { element.textContent = w.tabs.staff; });
     $$("[data-view='actions']").forEach((element) => { element.textContent = w.tabs.actions; });
 
@@ -1926,6 +1974,11 @@
     setText("paper-view-title", w.paper.title);
     setText("paper-view-help", w.paper.help);
     setText("paper-search-label", w.paper.findPaper);
+    setText("accreditation-view-title", w.accreditation.title);
+    setText("accreditation-view-help", w.accreditation.help);
+    setText("accreditation-summary-title", w.accreditation.summaryTitle);
+    setText("accreditation-summary-help", w.accreditation.summaryHelp);
+    setText("add-standards-set-button", w.accreditation.addSet);
 
     setText("staff-view-title", w.staff.title);
     setText("staff-view-help", w.staff.help);
@@ -2749,6 +2802,176 @@
     return profile[field] ? "" : (generatedProfile[field] ? "staff-profile-generated" : "");
   }
 
+  function externalFrameworkLabel(framework) {
+    return `${framework.name}${framework.version ? ` (${framework.version})` : ""}`;
+  }
+
+  function parseExternalStandards(text, offset = 0) {
+    return String(text || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line, index) => {
+      const parts = line.split("|").map((part) => part.trim());
+      return {
+        id: uid("standard"), code: parts.length > 1 ? (parts[0] || `S${offset + index + 1}`) : `S${offset + index + 1}`,
+        title: parts.length > 1 ? parts[1] : parts[0], description: parts.slice(2).join(" | "), ploIds: [], notes: ""
+      };
+    });
+  }
+
+  function renderAccreditation() {
+    const w = getWording().accreditation;
+    byId("external-frameworks").innerHTML = state.externalFrameworks.map((framework) => {
+      const rows = framework.standards.map((standard) => `<tr>
+        <th scope="row" class="external-standard-title"><b>${escapeHtml(standard.code)}</b><span>${escapeHtml(standard.title)}</span><p>${escapeHtml(standard.description)}</p>
+          <button type="button" class="button" data-edit-external-standard="${escapeHtml(standard.id)}" data-framework-id="${escapeHtml(framework.id)}" data-requires-edit>Edit standard</button>
+        </th>
+        ${state.plos.map((plo) => `<td class="external-link-cell"><label><input type="checkbox" data-external-standard-link="${escapeHtml(standard.id)}" data-framework-id="${escapeHtml(framework.id)}" data-plo-id="${escapeHtml(plo.id)}" ${standard.ploIds.includes(plo.id) ? "checked" : ""} aria-label="${escapeHtml(framework.name)}: ${escapeHtml(standard.code)} supported by ${escapeHtml(plo.code)}"></label></td>`).join("")}
+        <td class="discussion-note" contenteditable="true" data-standard-note="${escapeHtml(standard.id)}" data-framework-id="${escapeHtml(framework.id)}" aria-label="Mapping notes for ${escapeHtml(standard.code)}">${escapeHtml(standard.notes)}</td>
+      </tr>`).join("");
+      return `<section class="workspace-section external-framework" data-framework-id="${escapeHtml(framework.id)}">
+        <div class="section-heading split"><div class="external-framework-heading"><h3>${escapeHtml(framework.name)}</h3>
+          <p>${escapeHtml([framework.organisation, framework.version].filter(Boolean).join(" · "))}</p>
+          ${framework.source ? `<p class="external-framework-source">Source: ${escapeHtml(framework.source)}</p>` : ""}
+          ${framework.notes ? `<p>${escapeHtml(framework.notes)}</p>` : ""}
+          <p data-framework-coverage="${escapeHtml(framework.id)}">${framework.standards.filter((standard) => standard.ploIds.length).length} of ${framework.standards.length} standards have PLO links</p>
+        </div><div class="external-set-actions">
+          <button type="button" class="button" data-add-external-standard="${escapeHtml(framework.id)}" data-requires-edit>Add standard</button>
+          <button type="button" class="button" data-add-external-standards="${escapeHtml(framework.id)}" data-requires-edit>Add multiple</button>
+          <button type="button" class="button" data-edit-external-framework="${escapeHtml(framework.id)}" data-requires-edit>Edit set</button>
+        </div></div>
+        <p class="section-help">Tick every PLO that supports each standard. Unchecked means no link recorded.</p>
+        ${!state.plos.length ? `<p class="external-empty-message">Add programme learning outcomes in the Program tab to map this set.</p>` : ""}
+        <div class="table-wrap"><table class="external-matrix">
+          <thead><tr><th>Standard / requirement</th>${state.plos.map((plo) => `<th scope="col" title="${escapeHtml(plo.title)}">${escapeHtml(plo.code)}</th>`).join("")}<th>Mapping notes / rationale</th></tr></thead>
+          <tbody>${rows || `<tr><td colspan="${state.plos.length + 2}">No standards entered. Use Add standard or Add multiple.</td></tr>`}</tbody>
+        </table></div>
+      </section>`;
+    }).join("") || `<div class="empty-state">No standards sets added yet. Use ${escapeHtml(w.addSet)} to start. Each set will have its own PLO mapping table.</div>`;
+    renderAccreditationSummary();
+    renderBlockCommentButtons();
+    setReadOnlyFields(cloud.enabled && !cloud.canEdit);
+  }
+
+  function renderAccreditationSummary() {
+    const frameworks = state.externalFrameworks;
+    const rows = state.plos.map((plo) => `<tr><th scope="row"><b>${escapeHtml(plo.code)} · ${escapeHtml(plo.title)}</b><p>${escapeHtml(plo.description)}</p></th>
+      ${frameworks.map((framework) => {
+        const standards = framework.standards.filter((standard) => standard.ploIds.includes(plo.id));
+        return `<td>${standards.length ? `<ul class="external-standard-list">${standards.map((standard) => `<li><b>${escapeHtml(standard.code)}</b> ${escapeHtml(standard.title)}</li>`).join("")}</ul>` : `<span class="muted-text">No links recorded</span>`}</td>`;
+      }).join("")}</tr>`).join("");
+    byId("accreditation-summary").innerHTML = frameworks.length
+      ? `<table class="external-summary-table"><thead><tr><th>PLO</th>${frameworks.map((framework) => `<th>${escapeHtml(externalFrameworkLabel(framework))}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="${frameworks.length + 1}">No programme learning outcomes entered yet.</td></tr>`}</tbody></table>`
+      : `<div class="empty-state compact">The PLO summary will appear after you add a standards set.</div>`;
+  }
+
+  function editExternalFramework(id = "") {
+    if (!canEditWorkspace()) return;
+    const existing = state.externalFrameworks.find((framework) => framework.id === id);
+    openDialog({
+      title: existing ? "Edit Standards Set" : "Add Standards Set",
+      fields: [
+        { name: "name", label: "Standards set name", value: existing?.name || "", required: true },
+        { name: "organisation", label: "Issuing organisation / university", value: existing?.organisation || "" },
+        { name: "version", label: "Version / year / qualification level", value: existing?.version || "" },
+        { name: "source", label: "Source URL / document reference", value: existing?.source || "" },
+        { name: "notes", label: "Scope / context notes", value: existing?.notes || "", type: "textarea" },
+        ...(!existing ? [{ name: "standardsText", label: "Optional: add standards now, one per line (code | title | statement)", value: "", type: "textarea" }] : [])
+      ],
+      onSave(values) {
+        const { standardsText, ...metadata } = values;
+        if (existing) Object.assign(existing, metadata);
+        else state.externalFrameworks.push({ id: uid("framework"), ...metadata, standards: parseExternalStandards(standardsText) });
+        renderAccreditation(); scheduleSave();
+        void logActivity(existing ? "Updated standards set" : "Added standards set", metadata.name);
+      },
+      ...(existing ? { deleteLabel: "Delete standards set", deleteConfirm: `Delete "${existing.name}" and all of its standards and PLO mappings? Other sets and programme data will be kept.`, onDelete() {
+        state.externalFrameworks = state.externalFrameworks.filter((framework) => framework.id !== existing.id);
+        renderAccreditation(); scheduleSave();
+        void logActivity("Deleted standards set", existing.name);
+      } } : {})
+    });
+  }
+
+  function editExternalStandard(frameworkId, standardId = "") {
+    if (!canEditWorkspace()) return;
+    const framework = state.externalFrameworks.find((item) => item.id === frameworkId);
+    if (!framework) return;
+    const existing = framework.standards.find((item) => item.id === standardId);
+    openDialog({
+      title: existing ? "Edit Standard" : "Add Standard",
+      fields: [
+        { name: "code", label: "Standard code / number", value: existing?.code || `S${framework.standards.length + 1}`, required: true },
+        { name: "title", label: "Standard title", value: existing?.title || "", required: true },
+        { name: "description", label: "Full standard / requirement statement", value: existing?.description || "", type: "textarea" },
+        { name: "notes", label: "Mapping notes / rationale", value: existing?.notes || "", type: "textarea" }
+      ],
+      onSave(values) {
+        if (existing) Object.assign(existing, values);
+        else framework.standards.push({ id: uid("standard"), ...values, ploIds: [] });
+        renderAccreditation(); scheduleSave();
+        void logActivity(existing ? "Updated external standard" : "Added external standard", `${framework.name} / ${values.code}`);
+      },
+      ...(existing ? { deleteLabel: "Delete standard", deleteConfirm: `Delete ${existing.code} and its PLO mappings?`, onDelete() {
+        framework.standards = framework.standards.filter((item) => item.id !== existing.id);
+        renderAccreditation(); scheduleSave();
+        void logActivity("Deleted external standard", `${framework.name} / ${existing.code}`);
+      } } : {})
+    });
+  }
+
+  function addExternalStandards(frameworkId) {
+    if (!canEditWorkspace()) return;
+    const framework = state.externalFrameworks.find((item) => item.id === frameworkId);
+    if (!framework) return;
+    openDialog({
+      title: "Add Multiple Standards",
+      fields: [{ name: "standardsText", label: "One standard per line. Optional format: code | title | statement", value: "", type: "textarea", required: true }],
+      onSave(values) {
+        const standards = parseExternalStandards(values.standardsText, framework.standards.length);
+        if (!standards.length) throw new Error("Enter at least one standard.");
+        framework.standards.push(...standards);
+        renderAccreditation(); scheduleSave();
+        void logActivity("Added external standards", framework.name, { count: standards.length });
+      }
+    });
+  }
+
+  function accreditationCsvRows(detail = false) {
+    if (!detail) return [
+      ["Programme", "PLO code", "PLO title", "PLO statement", ...state.externalFrameworks.map(externalFrameworkLabel)],
+      ...state.plos.map((plo) => [state.meta.programme, plo.code, plo.title, plo.description, ...state.externalFrameworks.map((framework) =>
+        framework.standards.filter((standard) => standard.ploIds.includes(plo.id)).map((standard) => `${standard.code}: ${standard.title}`).join("\n"))])
+    ];
+    return [
+      ["Programme", "Standards set", "Issuing organisation", "Version", "Source", "Set context", "Standard code", "Standard title", "Standard statement", "PLO code", "PLO title", "PLO statement", "Mapping notes"],
+      ...state.externalFrameworks.flatMap((framework) => (framework.standards.length ? framework.standards : [{ code: "", title: "", description: "", notes: "", ploIds: [] }]).flatMap((standard) => {
+        const plos = state.plos.filter((plo) => standard.ploIds.includes(plo.id));
+        return (plos.length ? plos : [{ code: "", title: "", description: "" }]).map((plo) => [
+          state.meta.programme, framework.name, framework.organisation, framework.version, framework.source, framework.notes,
+          standard.code, standard.title, standard.description, plo.code, plo.title, plo.description, standard.notes
+        ]);
+      }))
+    ];
+  }
+
+  function accreditationCsvContent(rows) {
+    return "\uFEFF" + rows.map((row) => row.map((value) => {
+      const text = String(value ?? "");
+      const literal = /^\s*[=+@-]/.test(text) ? `'${text}` : text;
+      return `"${literal.replaceAll('"', '""')}"`;
+    }).join(",")).join("\r\n");
+  }
+
+  function exportAccreditationCsv(detail = false) {
+    if (!state.externalFrameworks.length) return toast("Add a standards set first");
+    const blob = new Blob([accreditationCsvContent(accreditationCsvRows(detail))], { type: "text/csv;charset=utf-8" });
+    const link = document.createElement("a");
+    const name = (state.meta.programme || "programme").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    link.href = URL.createObjectURL(blob);
+    link.download = `${name || "programme"}-external-standards-${detail ? "detail" : "summary"}.csv`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast("External standards CSV exported");
+  }
+
   function renderStaffWorkload() {
     const metricsElement = byId("staff-metrics");
     const gridElement = byId("staff-workload-grid");
@@ -2949,6 +3172,7 @@
     byId("dialog-title").textContent = config.title;
     byId("dialog-fields").innerHTML = config.fields.map(fieldHtml).join("");
     byId("dialog-delete-button").hidden = !config.onDelete;
+    byId("dialog-delete-button").textContent = config.deleteLabel || "Delete";
     byId("dialog-cancel-button").textContent = config.cancelLabel || (config.hideSave ? "Close" : "Cancel");
     const saveButton = byId("dialog-save-button");
     saveButton.hidden = Boolean(config.hideSave);
@@ -3006,7 +3230,7 @@
           state.alignments[item.id] ||= {};
           state.alignments[item.id][id] = "";
         });
-        renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); scheduleSave(); toast("PLO added");
+        renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); renderAccreditation(); scheduleSave(); toast("PLO added");
       }
     });
   }
@@ -3022,7 +3246,7 @@
         { name: "title", label: "Short title", value: item.title, required: true },
         { name: "description", label: "Outcome statement", value: item.description, type: "textarea", required: true }
       ],
-      onSave(values) { Object.assign(item, values); renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); scheduleSave(); },
+      onSave(values) { Object.assign(item, values); renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); renderAccreditation(); scheduleSave(); },
       onDelete() {
         state.plos = state.plos.filter((plo) => plo.id !== id);
         Object.values(state.alignments).forEach((alignment) => delete alignment[id]);
@@ -3034,7 +3258,10 @@
           delete paperItem.designAlignment?.ploClos?.[id];
         });
         state.assessments.forEach((assessmentItem) => delete assessmentItem.evidence[id]);
-        renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); scheduleSave(); toast("PLO deleted");
+        state.externalFrameworks.forEach((framework) => framework.standards.forEach((standard) => {
+          standard.ploIds = standard.ploIds.filter((ploId) => ploId !== id);
+        }));
+        renderPlos(); renderMappingTable(); renderPaperEditor(); renderAssessments(); renderAccreditation(); scheduleSave(); toast("PLO deleted");
       }
     });
   }
@@ -3199,6 +3426,7 @@
         { name: "programmeTab", label: "Program tab label", value: w.tabs.programme },
         { name: "assessmentTab", label: "Assessments tab label", value: w.tabs.assessment },
         { name: "paperTab", label: "Papers tab label", value: w.tabs.paper },
+        { name: "accreditationTab", label: "External accreditation tab label", value: w.tabs.accreditation },
         { name: "staffTab", label: "Staff tab label", value: w.tabs.staff },
         { name: "actionsTab", label: "Actions tab label", value: w.tabs.actions },
         { name: "programmeTitle", label: "Program page title", value: w.programme.title },
@@ -3222,6 +3450,10 @@
         { name: "assessmentHelp", label: "Assessment page description", value: w.assessment.help, type: "textarea" },
         { name: "paperTitle", label: "Paper page title", value: w.paper.title },
         { name: "paperHelp", label: "Paper page description", value: w.paper.help, type: "textarea" },
+        { name: "accreditationTitle", label: "External accreditation page title", value: w.accreditation.title },
+        { name: "accreditationHelp", label: "External accreditation page description", value: w.accreditation.help, type: "textarea" },
+        { name: "externalSummaryTitle", label: "External standards summary title", value: w.accreditation.summaryTitle },
+        { name: "externalSummaryHelp", label: "External standards summary description", value: w.accreditation.summaryHelp, type: "textarea" },
         { name: "staffTitle", label: "Staff page title", value: w.staff.title },
         { name: "staffHelp", label: "Staff page description", value: w.staff.help, type: "textarea" },
         { name: "actionsTitle", label: "Actions page title", value: w.actions.title },
@@ -3233,6 +3465,7 @@
             programme: values.programmeTab,
             assessment: values.assessmentTab,
             paper: values.paperTab,
+            accreditation: values.accreditationTab,
             staff: values.staffTab,
             actions: values.actionsTab
           },
@@ -3271,6 +3504,13 @@
             ...getWording().paper,
             title: values.paperTitle,
             help: values.paperHelp
+          },
+          accreditation: {
+            ...getWording().accreditation,
+            title: values.accreditationTitle,
+            help: values.accreditationHelp,
+            summaryTitle: values.externalSummaryTitle,
+            summaryHelp: values.externalSummaryHelp
           },
           staff: {
             ...getWording().staff,
@@ -3317,6 +3557,26 @@
 
   function printableAlignmentValue(paperId, ploId) {
     return normaliseAlignmentValue(state.alignments[paperId]?.[ploId]) || "–";
+  }
+
+  function printableAccreditationHtml() {
+    if (!state.externalFrameworks.length) return "";
+    const sets = state.externalFrameworks.map((framework) => `<h3>${escapeHtml(externalFrameworkLabel(framework))}</h3>
+      <p>${escapeHtml(framework.organisation)}${framework.source ? ` · Source: ${escapeHtml(framework.source)}` : ""}</p>
+      ${framework.notes ? `<p>${printableText(framework.notes)}</p>` : ""}
+      <table><thead><tr><th>Standard / requirement</th><th>Supporting PLOs</th><th>Mapping notes / rationale</th></tr></thead><tbody>
+      ${framework.standards.map((standard) => `<tr>
+        <td><b>${escapeHtml(standard.code)} · ${escapeHtml(standard.title)}</b><br>${printableText(standard.description)}</td>
+        <td>${printableText(state.plos.filter((plo) => standard.ploIds.includes(plo.id)).map((plo) => `${plo.code}: ${plo.title}`).join("\n") || "No links recorded")}</td>
+        <td>${printableText(standard.notes)}</td>
+      </tr>`).join("") || `<tr><td colspan="3">No standards entered.</td></tr>`}</tbody></table>`).join("");
+    const rows = state.plos.map((plo) => `<tr><td><b>${escapeHtml(plo.code)}</b><br>${escapeHtml(plo.title)}</td>
+      ${state.externalFrameworks.map((framework) => `<td>${printableText(framework.standards.filter((standard) => standard.ploIds.includes(plo.id)).map((standard) => `${standard.code}: ${standard.title}`).join("\n") || "No links recorded")}</td>`).join("")}</tr>`).join("");
+    return `<h2>${escapeHtml(getWording().accreditation.title)}</h2>
+      <p>Links record the team's alignment judgements, not an accreditation decision.</p>${sets}
+      <h3>${escapeHtml(getWording().accreditation.summaryTitle)}</h3>
+      <table><thead><tr><th>PLO</th>${state.externalFrameworks.map((framework) => `<th>${escapeHtml(externalFrameworkLabel(framework))}</th>`).join("")}</tr></thead>
+      <tbody>${rows || `<tr><td colspan="${state.externalFrameworks.length + 1}">No PLOs entered.</td></tr>`}</tbody></table>`;
   }
 
   function printableRelationshipRows() {
@@ -3536,6 +3796,8 @@
 
         <h2>Paper Details</h2>
         ${paperSections || "<p>No paper details entered.</p>"}
+
+        ${printableAccreditationHtml()}
 
         <h2>Staff</h2>
         <p class="muted">Paper points are attached to named staff for planning discussion; they are not divided across co-teachers and are not an official FTE calculation.</p>
@@ -3896,6 +4158,7 @@
   function editableTrackingTarget(target) {
     return target.closest?.([
       "[data-note-paper]",
+      "[data-standard-note]",
       "[data-paper-plo-link]",
       "[data-paper-activity-link]",
       "[data-paper-secondary-plo-link]",
@@ -3913,6 +4176,11 @@
 
   function fieldInfoForElement(element) {
     if (!element) return null;
+    if (element.matches("[data-standard-note]")) {
+      const framework = state.externalFrameworks.find((item) => item.id === element.dataset.frameworkId);
+      const standard = framework?.standards.find((item) => item.id === element.dataset.standardNote);
+      return { key: `external-standard-note:${framework?.id}:${standard?.id}`, label: `${framework?.name || "Standards set"} / ${standard?.code || "Standard"} mapping notes`, value: valueForElement(element) };
+    }
     if (element.matches("[data-design-item]")) {
       const paperItem = state.papers.find((item) => item.id === selectedPaperId);
       const kind = element.dataset.designKind;
@@ -4062,6 +4330,14 @@
   }
 
   document.addEventListener("click", (event) => {
+    const editFramework = event.target.closest("[data-edit-external-framework]");
+    if (editFramework) return editExternalFramework(editFramework.dataset.editExternalFramework);
+    const addStandard = event.target.closest("[data-add-external-standard]");
+    if (addStandard) return editExternalStandard(addStandard.dataset.addExternalStandard);
+    const addStandards = event.target.closest("[data-add-external-standards]");
+    if (addStandards) return addExternalStandards(addStandards.dataset.addExternalStandards);
+    const editStandard = event.target.closest("[data-edit-external-standard]");
+    if (editStandard) return editExternalStandard(editStandard.dataset.frameworkId, editStandard.dataset.editExternalStandard);
     const addBlockComment = event.target.closest("[data-add-block-comment]");
     if (addBlockComment) return void openAddComment(addBlockComment.dataset.addBlockComment);
     const reviewBlockComments = event.target.closest("[data-review-block-comments]");
@@ -4256,6 +4532,17 @@
   });
 
   document.addEventListener("input", (event) => {
+    const standardNote = event.target.closest("[data-standard-note]");
+    if (standardNote) {
+      if (!canEditWorkspace(false)) return;
+      const framework = state.externalFrameworks.find((item) => item.id === standardNote.dataset.frameworkId);
+      const standard = framework?.standards.find((item) => item.id === standardNote.dataset.standardNote);
+      if (standard) {
+        standard.notes = standardNote.textContent.trim();
+        scheduleSave();
+      }
+      return;
+    }
     if (event.target.matches("#field-body") && $("[data-comment-counter]")) {
       $("[data-comment-counter]").textContent = `${Array.from(event.target.value).length} characters`;
       return;
@@ -4368,6 +4655,28 @@
   });
 
   document.addEventListener("change", (event) => {
+    const externalLink = event.target.closest("[data-external-standard-link]");
+    if (externalLink) {
+      if (!canEditWorkspace()) {
+        externalLink.checked = !externalLink.checked;
+        return;
+      }
+      const framework = state.externalFrameworks.find((item) => item.id === externalLink.dataset.frameworkId);
+      const standard = framework?.standards.find((item) => item.id === externalLink.dataset.externalStandardLink);
+      const plo = state.plos.find((item) => item.id === externalLink.dataset.ploId);
+      if (!standard || !plo) return;
+      const selected = new Set(standard.ploIds);
+      if (externalLink.checked) selected.add(plo.id);
+      else selected.delete(plo.id);
+      standard.ploIds = [...selected];
+      $$("[data-framework-coverage]").filter((element) => element.dataset.frameworkCoverage === framework.id)
+        .forEach((element) => { element.textContent = `${framework.standards.filter((item) => item.ploIds.length).length} of ${framework.standards.length} standards have PLO links`; });
+      renderAccreditationSummary();
+      const label = `${framework.name} / ${standard.code} / ${plo.code}`;
+      markDiscreteEditPresence({ key: `external-standard:${framework.id}:${standard.id}:${plo.id}`, label });
+      void logActivity("Updated external standards mapping", label, { connected: externalLink.checked });
+      return scheduleSave();
+    }
     if (event.target.matches("#field-reviewTarget") && dialogContext?.kind === "reviewComments") {
       commentReviewTarget = event.target.value;
       return refreshReviewCommentsDialog();
@@ -4534,7 +4843,7 @@
   });
 
   byId("dialog-delete-button").addEventListener("click", () => {
-    if (!dialogContext?.onDelete || !confirm("Delete this item?")) return;
+    if (!dialogContext?.onDelete || !confirm(dialogContext.deleteConfirm || "Delete this item?")) return;
     dialogContext.onDelete();
     closeDialog();
   });
@@ -4545,6 +4854,9 @@
   byId("paper-view-add-button").addEventListener("click", addPaper);
   byId("add-assessment-button").addEventListener("click", addAssessment);
   byId("add-action-button").addEventListener("click", addAction);
+  byId("add-standards-set-button").addEventListener("click", () => editExternalFramework());
+  byId("export-accreditation-summary").addEventListener("click", () => exportAccreditationCsv());
+  byId("export-accreditation-detail").addEventListener("click", () => exportAccreditationCsv(true));
   byId("programme-settings-button").addEventListener("click", editProgrammeSettings);
   byId("wording-settings-button").addEventListener("click", editTemplateWording);
   byId("create-cloud-workspace-button").addEventListener("click", createCloudWorkspace);

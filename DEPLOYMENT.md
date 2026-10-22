@@ -54,6 +54,17 @@ It is not a full login/role system. Do not use it for highly sensitive data unti
 
 To start another programme, use `New workspace` from an admin link. The app will ask for the programme name, create a separate cloud workspace, and switch to that new workspace's admin link.
 
+## External Standards Mapping
+
+The fourth tab, `External Accreditation`, maps the programme's existing PLOs to multiple standards sets. Each workspace keeps its own sets; existing workspaces start with an empty standards area. No Supabase schema change is required for this addition.
+
+1. Use `Add standards set` to enter a name, issuing organisation, version, and source reference.
+2. Add standards individually, or paste one standard per line using `code | title | statement`.
+3. Tick every supporting PLO in each set's table and add mapping rationale where needed.
+4. Review the PLO summary across all sets. Download the summary CSV for a PLO-centred view, or the detailed CSV for source metadata, individual links, rationale, and unmapped standards. Both open in Excel.
+
+The complete mapping is included in JSON backups, saved versions, and the PDF report. Read-only reviewers can read, comment, and export; edit links can change sets and mappings. The page records the team's alignment judgements, not an accreditation decision. Official standards are not preloaded; use the correct source and version for the programme.
+
 ## Division Overview
 
 The division overview lives at:
