@@ -54,6 +54,12 @@ It is not a full login/role system. Do not use it for highly sensitive data unti
 
 To start another programme, use `New workspace` from an admin link. The app will ask for the programme name, create a separate cloud workspace, and switch to that new workspace's admin link.
 
+## Assessment Details
+
+Assessments use `Mode` for how the task takes place (for example, in person or online), and an optional `Brief description` for its format and purpose in one or two sentences. The same labels are used in Paper Details and PDF reports. There are no separate assessment-form or role/contribution inputs.
+
+For compatibility, Brief description continues to use the existing `purpose` data field. Existing `mode` and `purpose` text stays unchanged; the app does not guess how to split or move older combined form/mode entries. JSON exports, saved versions, and current workspace links keep working without a database migration.
+
 ## Reviewer Comments
 
 Comments are available only through the workspace's read-only/review link. Editing and admin views have no comment buttons, either in the toolbar or beside blocks. External reviewers and programme team members use the same read-only link for feedback and responses; to respond, add a comment on the relevant block under your own name. This is a shared block-based conversation, not threaded replies.

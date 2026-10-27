@@ -1,4 +1,4 @@
-"""Run isolated review-comment UI checks with Chrome and Python's standard library.
+"""Run isolated review and assessment UI checks with Chrome and Python's standard library.
 
 No production workspace, credentials, network service, or mapping data is used.
 """
@@ -21,7 +21,7 @@ BOOTSTRAP = r"""
 window.__reviewTest = { comments: [
   { id: 'legacy', author: 'Earlier reviewer', body: 'Existing whole-page feedback', target: '2. Assessments', createdAt: '2026-01-01' },
   { id: 'other-paper', author: 'Earlier reviewer', body: 'Existing other-paper feedback', target: 'block:paper:clos:p201', createdAt: '2026-01-01' }
-], calls: [], prompts: 0 };
+], calls: [], prompts: 0, allowMappingSaves: false, savedMapping: null };
 window.prompt = () => { window.__reviewTest.prompts++; return 'Fictional reviewer'; };
 window.alert = (message) => { throw new Error(message); };
 window.CURRICULUM_MAPPING_CONFIG = { supabaseUrl: location.origin, supabaseAnonKey: 'test-only' };
@@ -31,7 +31,7 @@ window.supabase = { createClient: () => ({
     qa.calls.push({ name, values });
     if (name === 'load_curriculum_workspace') {
       const role = new URLSearchParams(location.search).get('role');
-      return { data: { slug: 'fictional-review', data: structuredClone(window.__reviewFixture),
+      return { data: { slug: 'fictional-review', data: structuredClone(qa.savedMapping || window.__reviewFixture),
         canEdit: role !== 'reviewer', canManageTemplate: role === 'admin', updatedAt: '2026-01-01' } };
     }
     if (name === 'list_curriculum_workspace_comments') return { data: structuredClone(qa.comments) };
@@ -41,7 +41,11 @@ window.supabase = { createClient: () => ({
       qa.comments.push(comment);
       return { data: structuredClone(comment) };
     }
-    if (name === 'save_curriculum_workspace') throw new Error('Review UI must not save mapping data');
+    if (name === 'save_curriculum_workspace') {
+      if (!qa.allowMappingSaves) throw new Error('Review UI must not save mapping data');
+      qa.savedMapping = structuredClone(values.next_data);
+      return { data: { data: structuredClone(qa.savedMapping), updatedAt: '2026-01-01' } };
+    }
     return { data: [] };
   },
   functions: { invoke: async () => ({ data: { documents: [] } }) }
@@ -78,6 +82,21 @@ CHECKS = r"""
     const role = new URLSearchParams(location.search).get('role');
     const editable = role !== 'reviewer';
     check(document.body.classList.contains('read-only') === !editable, 'Correct reviewer/editor/admin mode');
+    chooseTab('assessment');
+    const assessmentHeaders = [...$('#assessment-table thead').querySelectorAll('th')].map(cell => cell.textContent);
+    check(assessmentHeaders.includes('Mode') && assessmentHeaders.includes('Brief description'), 'Assessment table uses simplified labels');
+    check(!assessmentHeaders.some(label => /form|role|contribution/i.test(label)), 'No separate assessment form or role column');
+    const oldAssessment = window.__reviewFixture.assessments[0];
+    const oldRow = $(`#assessment-table [data-assessment-row="${oldAssessment.id}"]`);
+    check(oldRow.querySelector('[data-assessment-field="mode"]').textContent === oldAssessment.mode, 'Existing combined form/mode text remains unchanged');
+    check(oldRow.querySelector('[data-assessment-field="purpose"]').textContent === oldAssessment.purpose, 'Existing role text is retained as the brief description');
+    chooseTab('paper');
+    check($('#paper-editor .mini-table thead').textContent.includes('Brief description'), 'Paper assessment table uses the same label');
+    check($('#paper-editor [data-assessment-field="purpose"]').textContent === oldAssessment.purpose, 'Paper page retains the same legacy description');
+    const report = new DOMParser().parseFromString(window.__reviewReport(), 'text/html');
+    const reportTable = [...report.querySelectorAll('h2')].find(heading => heading.textContent === 'Assessment Items').nextElementSibling;
+    check(reportTable.querySelector('thead').textContent.includes('Brief description'), 'PDF assessment table uses the simplified label');
+    check(reportTable.textContent.includes(oldAssessment.mode) && reportTable.textContent.includes(oldAssessment.purpose), 'PDF keeps both existing assessment text values');
     if (editable) {
       for (const view of ['programme', 'assessment', 'paper', 'accreditation', 'documents', 'staff', 'actions']) {
         chooseTab(view);
@@ -96,6 +115,37 @@ CHECKS = r"""
       check(qa.comments.length === 2, 'Existing comments remain stored');
       check(!qa.calls.some(call => /^(create|update|delete)_curriculum_workspace_comment$/.test(call.name)), 'Editable mode does not write comments');
       check(!qa.calls.some(call => call.name === 'save_curriculum_workspace'), 'Separating review UI does not save mapping data');
+
+      qa.allowMappingSaves = true;
+      chooseTab('assessment'); $('#add-assessment-button').click();
+      check($('label[for="field-mode"]').textContent === 'Mode', 'Add assessment keeps a separate Mode input');
+      check($('label[for="field-purpose"]').textContent === 'Brief description', 'Add assessment combines format and purpose in one description');
+      check($('#field-purpose').tagName === 'TEXTAREA', 'Brief description allows a short paragraph');
+      check(!$('#field-mode').required && !$('#field-purpose').required, 'Mode and description are optional');
+      $('#field-paperId').value = 'p101';
+      $('#field-name').value = 'Fictional simplified assessment';
+      $('#field-mode').value = 'Online';
+      const description = 'A short written case analysis.\nProvides feedback on applied reasoning.';
+      $('#field-purpose').value = description;
+      $('#dialog-form').requestSubmit();
+      await waitFor(() => !$('#edit-dialog').open);
+      await new Promise(resolve => setTimeout(resolve, 1300));
+      const saved = qa.savedMapping?.assessments.find(item => item.name === 'Fictional simplified assessment');
+      check(saved?.mode === 'Online' && saved?.purpose === description, 'New mode and multiline description pass through cloud autosave');
+      check(qa.savedMapping.assessments.find(item => item.id === oldAssessment.id).purpose === oldAssessment.purpose, 'Saving a new assessment preserves old description text');
+      check(qa.savedMapping.assessments.find(item => item.id === oldAssessment.id).mode === oldAssessment.mode, 'Saving a new assessment preserves old mode text');
+      chooseTab('paper'); $('[data-select-paper="p101"]').click();
+      const paperRow = $(`#paper-editor [data-assessment-row="${saved.id}"]`);
+      check(paperRow.querySelector('[data-assessment-field="purpose"]').textContent === description, 'New description carries to the correct paper');
+      check(paperRow.querySelector('[data-assessment-field="mode"]').textContent === 'Online', 'New mode carries to the correct paper');
+      const roundTrip = window.__reviewNormalise(JSON.parse(JSON.stringify(qa.savedMapping)));
+      check(roundTrip.assessments.find(item => item.id === saved.id).purpose === description, 'JSON import normalization keeps the brief description');
+      check(JSON.stringify(roundTrip.assessments.find(item => item.id === oldAssessment.id).evidence) === JSON.stringify(oldAssessment.evidence), 'Existing PLO assessment evidence remains unchanged');
+      chooseTab('assessment'); $('#add-assessment-button').click();
+      $('#field-name').value = 'Fictional assessment without optional details';
+      $('#dialog-form').requestSubmit();
+      await waitFor(() => !$('#edit-dialog').open);
+      check($('#assessment-table').textContent.includes('Fictional assessment without optional details'), 'Assessments can be added without mode or description');
       finish();
       return;
     }
@@ -187,6 +237,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
   window.__reviewFixture = clone(sampleData);
   window.__reviewFixture.wording.programme.ploTitle = 'Custom Graduate Outcomes';
   window.__reviewFixture.wording.assessment.evidenceTitle = 'Custom Evidence Matrix';
+  window.__reviewFixture.assessments[0].mode = 'Individual written (legacy form/mode text)';
+  window.__reviewFixture.assessments[0].purpose = 'Early evidence + formative feedback (legacy role text)';
+  window.__reviewReport = () => printableReportHtml();
+  window.__reviewNormalise = normaliseState;
   Object.assign(window.__reviewFixture.papers[1], { structure: 'Double-coded', secondaryCode: 'HUMS208', secondaryLevel: 200 });
 """
             source = source.replace("  let state = loadState();", fixture + "  let state = loadState();", 1)

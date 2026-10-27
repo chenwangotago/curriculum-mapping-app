@@ -179,7 +179,7 @@
     networkModes: "Move = drag cards. Required/Recommended/Related = click the earlier paper, then the next paper. Remove line = click the two connected papers.",
     boardGrouping: "Switch whether the board groups papers by Otago paper code level or by NZQCF level.",
     assessmentEvidence: "Click cells to map assessment evidence to PLOs: P means partial evidence, D means direct evidence. Blank means no assessment / PLO connection is recorded.",
-    assessmentItems: "Enter assessment item, week, weight, mode, role, AI-ready note, and diagnosis note. These rows are shared with Paper Details.",
+    assessmentItems: "Enter the assessment name, week, and weight. Mode describes how it takes place, such as in person, online, or take-home. Brief description combines the task format and its purpose in one or two sentences. Both are optional. These rows are shared with Paper Details.",
     assessmentSummary: "Use this to check whether each PLO has assessment evidence across the programme levels.",
     programmeEvidence: "Shows which assessment items can contribute to a programme-level picture of student progress.",
     studentWorkload: "Shows assessment timing across 12 teaching weeks. Heavier weighted items appear more strongly.",
@@ -256,10 +256,10 @@
       { id: "c5", from: "p230", to: "p315", type: "related" }
     ],
     assessments: [
-      assessment("a1", "p101", "Interpretive essay", 7, 35, "Individual written", "AI-resilient", { plo1: "D", plo2: "D", plo4: "P" }, "Check whether communication is practised before this assessment.", "Early evidence + formative feedback"),
-      assessment("a2", "p201", "Comparative analysis", 9, 40, "Essay or presentation", "AI allowed with acknowledgement", { plo1: "P", plo2: "D", plo4: "D", plo5: "P" }, "", "Summative judgement point"),
-      assessment("a3", "p215", "Research proposal", 9, 30, "Individual proposal", "AI-ready", { plo2: "P", plo3: "D", plo4: "P" }, "", "Research readiness evidence"),
-      assessment("a4", "p399", "Public-facing capstone", 12, 50, "Project and reflection", "AI-integrated design", { plo1: "P", plo2: "D", plo3: "D", plo4: "D", plo5: "D" }, "Confirm capstone evidence expectations across the teaching team.", "Capstone / programme-level evidence")
+      assessment("a1", "p101", "Interpretive essay", 7, 35, "Online submission", "AI-resilient", { plo1: "D", plo2: "D", plo4: "P" }, "Check whether communication is practised before this assessment.", "An individual written essay providing early evidence and formative feedback."),
+      assessment("a2", "p201", "Comparative analysis", 9, 40, "Online or in person", "AI allowed with acknowledgement", { plo1: "P", plo2: "D", plo4: "D", plo5: "P" }, "", "An essay or presentation used for a summative judgement of comparative analysis."),
+      assessment("a3", "p215", "Research proposal", 9, 30, "Online submission", "AI-ready", { plo2: "P", plo3: "D", plo4: "P" }, "", "An individual proposal demonstrating readiness for independent research."),
+      assessment("a4", "p399", "Public-facing capstone", 12, 50, "Blended", "AI-integrated design", { plo1: "P", plo2: "D", plo3: "D", plo4: "D", plo5: "D" }, "Confirm capstone evidence expectations across the teaching team.", "A project and reflection providing capstone evidence of programme learning.")
     ],
     actions: [
       { id: "act1", title: "Clarify HUMS101 communication evidence", owner: "Paper coordinator", due: "2026-08-01", status: "To do", notes: "Review CLO and essay rubric." },
@@ -2708,7 +2708,7 @@
           <p class="section-help">These rows are shared with the Assessments tab. Editing them here updates the programme assessment map.</p>
           <div class="mini-table-wrap">
             <table class="mini-table">
-              <thead><tr><th>ID</th><th>Item</th><th>Code side</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role</th><th>PLO evidence</th><th></th></tr></thead>
+              <thead><tr><th>ID</th><th>Item</th><th>Code side</th><th>Week</th><th>Weight</th><th>Mode</th><th>Brief description</th><th>PLO evidence</th><th></th></tr></thead>
               <tbody>${assessmentRows || `<tr><td colspan="9">No assessment items yet.</td></tr>`}</tbody>
             </table>
           </div>
@@ -2763,7 +2763,7 @@
         <td><button class="button danger-text" data-delete-assessment="${item.id}">Delete</button></td>
       </tr>`;
     }).join("");
-    byId("assessment-table").innerHTML = `<thead><tr><th>Paper</th><th>Code side</th><th>Assessment item</th><th>Teaching week</th><th>Weight %</th><th>Assessment form / mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th><th></th></tr></thead><tbody>${rows}</tbody>`;
+    byId("assessment-table").innerHTML = `<thead><tr><th>Paper</th><th>Code side</th><th>Assessment item</th><th>Teaching week</th><th>Weight %</th><th>Mode</th><th>Brief description</th><th>AI-ready</th><th>Diagnosis note</th><th></th></tr></thead><tbody>${rows}</tbody>`;
 
     const evidenceHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
     const evidenceRows = state.assessments.map((item) => {
@@ -2800,7 +2800,7 @@
         const evidenceHtml = evidenceItems.map((assessmentItem) => `
           <article class="programme-evidence-item">
             <b>${escapeHtml(assessmentItem.name)}</b>
-            <span>${escapeHtml(assessmentItem.purpose || "Assessment role to be clarified")}</span>
+            <span>${escapeHtml(assessmentItem.purpose || "No brief description entered")}</span>
             <small>${escapeHtml(assessmentSideLabel(assessmentItem))}</small>
             <small>${escapeHtml(assessmentPloSummary(assessmentItem))}</small>
           </article>
@@ -3630,8 +3630,9 @@
         { name: "side", label: "Code side (for double-coded papers)", value: "Whole paper", type: "select", options: ASSESSMENT_SIDES },
         { name: "week", label: "Due week", value: "6", type: "number" },
         { name: "weight", label: "Weight %", value: "20", type: "number" },
-        { name: "mode", label: "Mode / type", value: "" },
-        { name: "purpose", label: "Assessment role / contribution", value: "" },
+        { name: "mode", label: "Mode", value: "" },
+        { name: "purpose", label: "Brief description", value: "", type: "textarea" },
+        { type: "html", html: `<p class="muted-text">Mode: e.g. in person, online, or take-home. Brief description: one or two sentences about the task format and its purpose. Both are optional.</p>` },
         { name: "aiContext", label: "AI-ready / resilient", value: "" },
         { name: "diagnosisNote", label: "Diagnosis note", value: "", type: "textarea" }
       ],
@@ -3998,7 +3999,7 @@
         .map(({ connection, other, isOutgoing }) => `${connectionTypeLabel(connection.type)}: ${relationshipDirectionLabel(connection, isOutgoing)} ${other ? `${paperCodeLabel(other)} · ${other.title}` : "unknown paper"}`)
         .join("\n");
       const assessments = numberedAssessments(paperItem)
-        .map((item) => `${item.code}: ${item.name}; ${assessmentSideLabel(item)}; week ${item.week}; ${item.weight}%; ${item.mode}; ${assessmentPloSummary(item)}`)
+        .map((item) => `${item.code}: ${item.name}; ${assessmentSideLabel(item)}; week ${item.week}; ${item.weight}%; ${item.mode}; ${item.purpose || ""}; ${assessmentPloSummary(item)}`)
         .join("\n");
       const clos = paperClos(paperItem);
       const activities = paperLearningActivities(paperItem);
@@ -4109,7 +4110,7 @@
         <table><thead><tr><th>Assessment item</th>${ploHead}</tr></thead><tbody>${evidenceRows}</tbody></table>
 
         <h2>Assessment Items</h2>
-        <table><thead><tr><th>Paper</th><th>Code side</th><th>Item</th><th>Week</th><th>Weight</th><th>Mode</th><th>Role / contribution</th><th>AI-ready</th><th>Diagnosis note</th></tr></thead><tbody>${assessmentRows}</tbody></table>
+        <table><thead><tr><th>Paper</th><th>Code side</th><th>Item</th><th>Week</th><th>Weight</th><th>Mode</th><th>Brief description</th><th>AI-ready</th><th>Diagnosis note</th></tr></thead><tbody>${assessmentRows}</tbody></table>
 
         <h2>Paper Details</h2>
         ${paperSections || "<p>No paper details entered.</p>"}
