@@ -30,20 +30,15 @@ window.supabase = { createClient: () => ({
     const qa = window.__reviewTest;
     qa.calls.push({ name, values });
     if (name === 'load_curriculum_workspace') {
-      const admin = new URLSearchParams(location.search).get('role') === 'admin';
+      const role = new URLSearchParams(location.search).get('role');
       return { data: { slug: 'fictional-review', data: structuredClone(window.__reviewFixture),
-        canEdit: admin, canManageTemplate: admin, updatedAt: '2026-01-01' } };
+        canEdit: role !== 'reviewer', canManageTemplate: role === 'admin', updatedAt: '2026-01-01' } };
     }
     if (name === 'list_curriculum_workspace_comments') return { data: structuredClone(qa.comments) };
     if (name === 'create_curriculum_workspace_comment') {
       const comment = { id: crypto.randomUUID(), author: values.comment_author,
         body: values.comment_body, target: values.comment_target, createdAt: '2026-01-02' };
       qa.comments.push(comment);
-      return { data: structuredClone(comment) };
-    }
-    if (name === 'update_curriculum_workspace_comment') {
-      const comment = qa.comments.find(item => item.id === values.comment_id);
-      Object.assign(comment, { body: values.comment_body, target: values.comment_target });
       return { data: structuredClone(comment) };
     }
     if (name === 'save_curriculum_workspace') throw new Error('Review UI must not save mapping data');
@@ -73,11 +68,38 @@ CHECKS = r"""
     $('#dialog-form').requestSubmit();
     await waitFor(() => !$('#edit-dialog').open);
   };
+  const finish = () => {
+    const output = document.createElement('pre'); output.id = 'review-test-results';
+    output.textContent = JSON.stringify({ passed: passed.length, checks: passed }); document.body.append(output);
+  };
   try {
-    await waitFor(() => !$('#add-comment-button').hidden);
+    await waitFor(() => $('#cloud-status').matches('.online, .readonly'));
     const qa = window.__reviewTest;
-    const admin = new URLSearchParams(location.search).get('role') === 'admin';
-    check(document.body.classList.contains('read-only') === !admin, 'Correct reviewer/admin mode');
+    const role = new URLSearchParams(location.search).get('role');
+    const editable = role !== 'reviewer';
+    check(document.body.classList.contains('read-only') === !editable, 'Correct reviewer/editor/admin mode');
+    if (editable) {
+      for (const view of ['programme', 'assessment', 'paper', 'accreditation', 'documents', 'staff', 'actions']) {
+        chooseTab(view);
+        check($('#add-comment-button').hidden && $('#review-comments-button').hidden, `${view}: no toolbar comment buttons`);
+        check(!document.querySelector('.review-block-tools'), `${view}: no block comment controls after rendering`);
+        for (const key of ['addComment', 'reviewComments'])
+          check(getComputedStyle($(`[data-help-key="${key}"]`)).display === 'none', `${view}: no orphaned comment help button`);
+      }
+      chooseTab('paper'); $('[data-select-paper="p108"]').click();
+      check(!document.querySelector('.review-block-tools'), 'Changing paper does not recreate comment controls');
+      check(!$('#paper-editor textarea').readOnly, 'Paper editing remains enabled');
+      check(!$('#add-plo-button').disabled && !$('#add-assessment-button').disabled, 'Curriculum content creation remains enabled');
+      open(); $('#review-comments-button').click(); await tick();
+      check(!$('#edit-dialog').open, 'Hidden comment entry points cannot open dialogs in editable mode');
+      check(qa.prompts === 0, 'Editable mode does not prompt for a reviewer name');
+      check(qa.comments.length === 2, 'Existing comments remain stored');
+      check(!qa.calls.some(call => /^(create|update|delete)_curriculum_workspace_comment$/.test(call.name)), 'Editable mode does not write comments');
+      check(!qa.calls.some(call => call.name === 'save_curriculum_workspace'), 'Separating review UI does not save mapping data');
+      finish();
+      return;
+    }
+    check(!$('#add-comment-button').hidden && !$('#review-comments-button').hidden, 'Read-only toolbar keeps comment buttons');
     for (const view of ['programme', 'assessment', 'paper', 'accreditation', 'documents', 'staff', 'actions']) {
       chooseTab(view); open();
       const targets = values();
@@ -116,6 +138,16 @@ CHECKS = r"""
     check(qa.comments.at(-1).target === 'block:assessment:workload', 'Assessment block comment saves its target');
     check(qa.prompts === 1, 'Reviewer name requested only once');
 
+    $('#session-name-button').click();
+    $('#field-name').value = 'Fictional programme team member';
+    $('#dialog-form').requestSubmit();
+    await waitFor(() => !$('#edit-dialog').open);
+    open();
+    await save('block:assessment:workload', 'Programme team response to workload feedback');
+    check(qa.comments.at(-1).author === 'Fictional programme team member', 'Team can respond under their own name through the review link');
+    check(qa.comments.filter(comment => comment.target === 'block:assessment:workload').length === 2, 'Feedback and team response share the same block');
+    check(qa.comments.some(comment => comment.body === 'Feedback on student workload'), 'Responding does not replace reviewer feedback');
+
     $('#review-comments-button').click();
     await waitFor(() => $('#edit-dialog').open && $('#dialog-title').textContent === 'Review Comments');
     check($('#dialog-fields').textContent.includes('Existing whole-page feedback'), 'Legacy whole-page comments are retained');
@@ -126,23 +158,11 @@ CHECKS = r"""
     check($('#dialog-fields').textContent.includes('Feedback on the first paper CLOs'), 'Review filter displays the selected block comment');
     check(!$('#dialog-fields').textContent.includes('Feedback on student workload'), 'Review filter excludes other blocks');
     close();
-    if (admin) {
-      $('#review-comments-button').click();
-      await waitFor(() => $('#edit-dialog').open && $('#dialog-title').textContent === 'Review Comments');
-      $('#field-reviewTarget').value = '';
-      $('#field-reviewTarget').dispatchEvent(new Event('change', { bubbles: true }));
-      $('[data-comment-edit="other-paper"]').click();
-      check($('#field-target').value === 'block:paper:clos:p201', 'Admin edit preserves a target from another page/paper');
-      await save('block:paper:clos:p201', 'Updated existing comment without retargeting');
-      check(qa.comments.find(item => item.id === 'other-paper').target === 'block:paper:clos:p201', 'Admin update retains original target');
-    } else {
-      check(!$('[data-comment-edit]') && !$('[data-comment-delete]'), 'Reviewer cannot edit or delete existing comments');
-      check($('#paper-editor textarea').readOnly, 'Paper contents remain read-only');
-    }
+    check(!$('[data-comment-edit]') && !$('[data-comment-delete]'), 'Reviewer cannot edit or delete existing comments');
+    check($('#paper-editor textarea').readOnly, 'Paper contents remain read-only');
     check(!qa.calls.some(call => call.name === 'save_curriculum_workspace'), 'Comment operations do not save or replace mapping data');
     check(qa.comments.some(item => item.id === 'legacy'), 'No existing comment was removed');
-    const output = document.createElement('pre'); output.id = 'review-test-results';
-    output.textContent = JSON.stringify({ passed: passed.length, checks: passed }); document.body.append(output);
+    finish();
   } catch (error) {
     const output = document.createElement('pre'); output.id = 'review-test-results';
     output.textContent = JSON.stringify({ passed: passed.length, error: error.stack,
@@ -198,7 +218,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for role, width, height in [("reviewer", 1440, 1000), ("reviewer", 390, 844), ("admin", 1440, 1000)]:
+        for role, width, height in [(role, width, height) for role in ("reviewer", "editor", "admin") for width, height in ((1440, 1000), (390, 844))]:
             with tempfile.TemporaryDirectory(prefix="curriculum-review-qa-") as profile:
                 url = f"http://127.0.0.1:{server.server_port}/?workspace=fictional-review&token=test-only&role={role}"
                 result = subprocess.run([chrome, "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check", f"--user-data-dir={profile}", f"--window-size={width},{height}", "--virtual-time-budget=10000", "--dump-dom", url], capture_output=True, text=True, timeout=45)

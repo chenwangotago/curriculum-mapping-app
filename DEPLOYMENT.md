@@ -56,11 +56,13 @@ To start another programme, use `New workspace` from an admin link. The app will
 
 ## Reviewer Comments
 
-Open the tab to review, then choose `Add comment`. Its target menu contains only that page and the blocks currently available on it, rather than whole-page shortcuts to other tabs. On Papers, select a paper first: comments on CLOs, learning activities, assessments, alignment maps, and the other paper blocks keep that paper's stable ID. A double-coded paper also offers its second-code section.
+Comments are available only through the workspace's read-only/review link. Editing and admin views have no comment buttons, either in the toolbar or beside blocks. External reviewers and programme team members use the same read-only link for feedback and responses; to respond, add a comment on the relevant block under your own name. This is a shared block-based conversation, not threaded replies.
 
-`Review comments` still lists comments across the workspace and can filter by their target. Admin editing preserves an existing target even when the comment was opened from another tab. Existing comments and mapping data are unchanged; this update needs no database migration or new share links.
+In the read-only view, open the tab to review, then choose `Add comment`. Its target menu contains only that page and its available blocks. On Papers, select a paper first: block comments keep that paper's stable ID. A double-coded paper also offers its second-code section. `Review comments` lists existing comments across the workspace and can filter by their target.
 
-Run `python3 tests/review-comments-browser.py` with Chrome installed to check fictional reviewer/admin flows on desktop and mobile. The test mocks cloud responses and never accesses production workspaces.
+Existing comments, mapping data, and server-side permissions are unchanged. No database migration or new share links are needed. The admin comment-management backend is retained, but the editable UI no longer exposes its entry points.
+
+Run `python3 tests/review-comments-browser.py` with Chrome installed to check fictional reviewer, editor, and admin flows on desktop and mobile. The test mocks cloud responses and never accesses production workspaces.
 
 ## External Standards Mapping
 

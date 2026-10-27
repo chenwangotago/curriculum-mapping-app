@@ -161,8 +161,8 @@
     copyEditLink: "Share this with people who should add or change mapping content during the workshop.",
     copyViewLink: "Share this with reviewers who should read the workspace and add comments without changing the mapping.",
     sessionName: "Your name is remembered in this browser. Use My name to change it. Comments, edit-presence warnings, and the admin log show this self-reported name.",
-    addComment: "Open the tab you want to review, then choose Add comment. The menu lists that page and its blocks. On Papers, select a paper first; block comments stay attached to that paper. Your name is remembered in this browser. View-only reviewers can comment without changing the mapping.",
-    reviewComments: "Read submitted comments and filter by the page, paper, or block they relate to. Admin links can also edit or delete comments.",
+    addComment: "Comments are available in the read-only review link, not in editing or admin views. Open the tab you want to review, then choose Add comment. On Papers, select a paper first. Programme team members can use the same read-only link to respond with a comment on the relevant block. Your name is remembered in this browser.",
+    reviewComments: "In the read-only review link, read submitted comments and filter by their page, paper, or block. Programme team members can use Add comment to respond on the same block without changing the mapping.",
     comments: "Use comments for review feedback that should not directly change the team's mapping.",
     adminLog: "Admin-only record of recent edits, comments, and key changes. It helps trace who changed what and when.",
     saveVersion: "Save a restorable version inside this workspace. It is not a downloaded file; use Export JSON for a portable backup.",
@@ -1178,6 +1178,10 @@
     return reviewCommentsWorkspace === cloud.workspace ? reviewComments : [];
   }
 
+  function canUseReviewComments() {
+    return cloud.enabled && cloud.loaded && !cloud.canEdit;
+  }
+
   function commentTargetOptions(selectedTarget = "") {
     const view = $(".view.active")?.id.replace(/^view-/, "") || $(".tab.active")?.dataset.view || "programme";
     const page = `page:${view}`;
@@ -1191,14 +1195,14 @@
   }
 
   function renderBlockCommentButtons() {
+    if (!canUseReviewComments()) {
+      $$(".review-block-tools").forEach((tools) => tools.remove());
+      return;
+    }
     commentBlockDefinitions().forEach((block) => {
       const anchor = $(block.selector);
       if (!anchor) return;
       let tools = anchor.nextElementSibling?.matches(".review-block-tools") ? anchor.nextElementSibling : null;
-      if (!cloud.enabled) {
-        tools?.remove();
-        return;
-      }
       const target = blockCommentTarget(block);
       const count = currentWorkspaceComments().filter((comment) => comment.target === target).length;
       if (!tools) {
@@ -1354,7 +1358,7 @@
   }
 
   async function openAddComment(target = "") {
-    if (!cloud.enabled) return toast("Comments are available on cloud links.");
+    if (!canUseReviewComments()) return toast("Use this workspace's read-only link to add or review comments.");
     ensureSessionName("add review comments");
     reviewBackendAvailable = true;
     const options = commentTargetOptions(target);
@@ -1381,7 +1385,7 @@
   }
 
   async function openReviewComments(target = "") {
-    if (!cloud.enabled) return toast("Comments are available on cloud links.");
+    if (!canUseReviewComments()) return toast("Use this workspace's read-only link to add or review comments.");
 
     commentReviewTarget = target;
     reviewBackendAvailable = true;
@@ -1833,8 +1837,8 @@
     editButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.editToken || cloud.token));
     viewButton.hidden = !(cloud.enabled && cloud.canManageTemplate && cloud.viewToken);
     sessionButton.hidden = !cloud.enabled;
-    addCommentButton.hidden = !cloud.enabled;
-    reviewCommentsButton.hidden = !cloud.enabled;
+    addCommentButton.hidden = !canUseReviewComments();
+    reviewCommentsButton.hidden = !canUseReviewComments();
     activityButton.hidden = !(cloud.enabled && cloud.canManageTemplate);
     sessionButton.textContent = sessionName ? `Name: ${sessionName}` : "My name";
     document.body.classList.toggle("read-only", cloud.enabled && !cloud.canEdit);
