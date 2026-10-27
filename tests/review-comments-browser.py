@@ -86,13 +86,26 @@ CHECKS = r"""
     const assessmentHeaders = [...$('#assessment-table thead').querySelectorAll('th')].map(cell => cell.textContent);
     check(assessmentHeaders.includes('Mode') && assessmentHeaders.includes('Brief description'), 'Assessment table uses simplified labels');
     check(!assessmentHeaders.some(label => /form|role|contribution/i.test(label)), 'No separate assessment form or role column');
+    check(assessmentHeaders.includes('Due week') && !assessmentHeaders.includes('Teaching week'), 'Due-week label does not imply 15 teaching weeks');
+    const timeline = $('#assessment-timeline');
+    const weeks = [...timeline.querySelectorAll('.week')];
+    check(weeks.length === 15 && weeks[0].querySelector('b').textContent === 'W1' && weeks.at(-1).querySelector('b').textContent === 'W15', 'Workload timeline covers all 15 assessment weeks');
+    check(getComputedStyle(timeline).gridTemplateColumns.split(' ').length === 15, 'Workload grid has 15 columns without wrapping weeks to another row');
+    check([...weeks.at(-1).querySelectorAll('[title]')].some(item => item.title === window.__reviewFixture.assessments[3].name), 'Existing Week 15 final assessment is visible');
+    if (timeline.scrollWidth > timeline.clientWidth) {
+      timeline.scrollLeft = timeline.scrollWidth;
+      check(weeks.at(-1).getBoundingClientRect().right <= timeline.getBoundingClientRect().right + 1, 'Last assessment week is reachable by horizontal scrolling');
+      timeline.scrollLeft = 0;
+    }
     const oldAssessment = window.__reviewFixture.assessments[0];
     const oldRow = $(`#assessment-table [data-assessment-row="${oldAssessment.id}"]`);
     check(oldRow.querySelector('[data-assessment-field="mode"]').textContent === oldAssessment.mode, 'Existing combined form/mode text remains unchanged');
     check(oldRow.querySelector('[data-assessment-field="purpose"]').textContent === oldAssessment.purpose, 'Existing role text is retained as the brief description');
+    check(oldRow.querySelector('[data-assessment-field="week"]').max === '15', 'Assessment table accepts due weeks through 15');
     chooseTab('paper');
     check($('#paper-editor .mini-table thead').textContent.includes('Brief description'), 'Paper assessment table uses the same label');
     check($('#paper-editor [data-assessment-field="purpose"]').textContent === oldAssessment.purpose, 'Paper page retains the same legacy description');
+    check($('#paper-editor [data-assessment-field="week"]').max === '15', 'Paper assessment table accepts due weeks through 15');
     const report = new DOMParser().parseFromString(window.__reviewReport(), 'text/html');
     const reportTable = [...report.querySelectorAll('h2')].find(heading => heading.textContent === 'Assessment Items').nextElementSibling;
     check(reportTable.querySelector('thead').textContent.includes('Brief description'), 'PDF assessment table uses the simplified label');
@@ -122,6 +135,11 @@ CHECKS = r"""
       check($('label[for="field-purpose"]').textContent === 'Brief description', 'Add assessment combines format and purpose in one description');
       check($('#field-purpose').tagName === 'TEXTAREA', 'Brief description allows a short paragraph');
       check(!$('#field-mode').required && !$('#field-purpose').required, 'Mode and description are optional');
+      check($('#field-week').min === '1' && $('#field-week').max === '15', 'Add assessment due-week bounds cover Weeks 1-15');
+      $('#field-week').value = '16';
+      check(!$('#field-week').checkValidity(), 'Add assessment rejects weeks beyond the displayed range');
+      $('#field-week').value = '15';
+      check($('#field-week').checkValidity(), 'Add assessment accepts Week 15');
       $('#field-paperId').value = 'p101';
       $('#field-name').value = 'Fictional simplified assessment';
       $('#field-mode').value = 'Online';
@@ -132,14 +150,21 @@ CHECKS = r"""
       await new Promise(resolve => setTimeout(resolve, 1300));
       const saved = qa.savedMapping?.assessments.find(item => item.name === 'Fictional simplified assessment');
       check(saved?.mode === 'Online' && saved?.purpose === description, 'New mode and multiline description pass through cloud autosave');
+      check(saved?.week === 15, 'Final-assessment week passes through autosave');
+      check([...$('#assessment-timeline .week:last-child').querySelectorAll('[title]')].some(item => item.title === saved.name), 'New Week 15 assessment appears in the last workload column');
       check(qa.savedMapping.assessments.find(item => item.id === oldAssessment.id).purpose === oldAssessment.purpose, 'Saving a new assessment preserves old description text');
       check(qa.savedMapping.assessments.find(item => item.id === oldAssessment.id).mode === oldAssessment.mode, 'Saving a new assessment preserves old mode text');
       chooseTab('paper'); $('[data-select-paper="p101"]').click();
       const paperRow = $(`#paper-editor [data-assessment-row="${saved.id}"]`);
       check(paperRow.querySelector('[data-assessment-field="purpose"]').textContent === description, 'New description carries to the correct paper');
       check(paperRow.querySelector('[data-assessment-field="mode"]').textContent === 'Online', 'New mode carries to the correct paper');
+      check(paperRow.querySelector('[data-assessment-field="week"]').value === '15', 'Final-assessment week carries to the correct paper');
       const roundTrip = window.__reviewNormalise(JSON.parse(JSON.stringify(qa.savedMapping)));
       check(roundTrip.assessments.find(item => item.id === saved.id).purpose === description, 'JSON import normalization keeps the brief description');
+      check(roundTrip.assessments.find(item => item.id === saved.id).week === 15, 'JSON round trip retains Week 15');
+      const updatedReport = new DOMParser().parseFromString(window.__reviewReport(), 'text/html');
+      const updatedTable = [...updatedReport.querySelectorAll('h2')].find(heading => heading.textContent === 'Assessment Items').nextElementSibling;
+      check([...updatedTable.querySelectorAll('tbody tr')].find(row => row.cells[2].textContent === saved.name)?.cells[3].textContent === '15', 'PDF includes Week 15 final-assessment timing');
       check(JSON.stringify(roundTrip.assessments.find(item => item.id === oldAssessment.id).evidence) === JSON.stringify(oldAssessment.evidence), 'Existing PLO assessment evidence remains unchanged');
       chooseTab('assessment'); $('#add-assessment-button').click();
       $('#field-name').value = 'Fictional assessment without optional details';
@@ -239,6 +264,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
   window.__reviewFixture.wording.assessment.evidenceTitle = 'Custom Evidence Matrix';
   window.__reviewFixture.assessments[0].mode = 'Individual written (legacy form/mode text)';
   window.__reviewFixture.assessments[0].purpose = 'Early evidence + formative feedback (legacy role text)';
+  window.__reviewFixture.assessments[3].week = 15;
   window.__reviewReport = () => printableReportHtml();
   window.__reviewNormalise = normaliseState;
   Object.assign(window.__reviewFixture.papers[1], { structure: 'Double-coded', secondaryCode: 'HUMS208', secondaryLevel: 200 });

@@ -58,6 +58,8 @@ To start another programme, use `New workspace` from an admin link. The app will
 
 Assessments use `Mode` for how the task takes place (for example, in person or online), and an optional `Brief description` for its format and purpose in one or two sentences. The same labels are used in Paper Details and PDF reports. There are no separate assessment-form or role/contribution inputs.
 
+The Student Workload timeline and assessment due-week inputs cover Weeks 1-15 so final assessments can be placed after teaching ends. This is a 15-week assessment window, not a change from 12 teaching weeks. Existing assessment dates are not shifted; the same week values remain in saved versions, JSON, and PDFs.
+
 For compatibility, Brief description continues to use the existing `purpose` data field. Existing `mode` and `purpose` text stays unchanged; the app does not guess how to split or move older combined form/mode entries. JSON exports, saved versions, and current workspace links keep working without a database migration.
 
 ## Reviewer Comments

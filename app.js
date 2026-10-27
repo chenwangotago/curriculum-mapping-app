@@ -5,7 +5,7 @@
   const HISTORY_KEY = "curriculum-mapping-workspace-history-v1";
   const SESSION_NAME_KEY = "curriculum-mapping-session-name-v1";
   const CLIENT_ID_KEY = "curriculum-mapping-client-id-v1";
-  const TEACHING_WEEKS = 12;
+  const ASSESSMENT_WEEKS = 15;
   const NZQCF_LEVEL_OPTIONS = [5, 6, 7, 8, 9, 10];
   const PAPER_REQUIREMENTS = ["Elective", "Compulsory"];
   const PAPER_STRUCTURES = ["Single code", "Double-coded"];
@@ -116,7 +116,7 @@
       programmeEvidenceTitle: "Programme Evidence of Learning",
       programmeEvidenceHelp: "Shows what evidence each paper contributes to a programme-level picture of student progress and capability development.",
       workloadTitle: "Student Workload",
-      workloadHelp: "Assessment items are placed by due week. Higher-weight items are shown more strongly.",
+      workloadHelp: "Assessment items are placed by due week, from Week 1 to Week 15, with room for final assessments after teaching ends. Higher-weight items are shown more strongly.",
       addAssessment: "Add assessment item"
     },
     paper: {
@@ -182,7 +182,7 @@
     assessmentItems: "Enter the assessment name, week, and weight. Mode describes how it takes place, such as in person, online, or take-home. Brief description combines the task format and its purpose in one or two sentences. Both are optional. These rows are shared with Paper Details.",
     assessmentSummary: "Use this to check whether each PLO has assessment evidence across the programme levels.",
     programmeEvidence: "Shows which assessment items can contribute to a programme-level picture of student progress.",
-    studentWorkload: "Shows assessment timing across 12 teaching weeks. Heavier weighted items appear more strongly.",
+    studentWorkload: "Shows assessment timing from Week 1 to Week 15, including space for final assessments after the 12 teaching weeks. This does not change the number of teaching weeks. Heavier weighted items appear more strongly.",
     paperDetails: "Complete the paper profile, validate its PLO / CLO connections, then map learning activities and assessments to each CLO.",
     paperRoles: "Select one or more roles for the paper, such as gateway/foundation, core spine, methods/skills, thematic specialisation, advanced application, capstone, service paper, or student attraction.",
     paperPloLinks: "This shows which PLOs the paper supports based on the Program alignment table.",
@@ -2632,7 +2632,7 @@
         <td><b>A${index + 1}</b></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="name">${escapeHtml(assessmentItem.name)}</td>
         <td><select data-assessment-field="side" aria-label="Code side">${assessmentSideOptionsHtml(assessmentItem)}</select></td>
-        <td><input type="number" min="1" max="${TEACHING_WEEKS}" data-assessment-field="week" value="${assessmentItem.week}" aria-label="Due week"></td>
+        <td><input type="number" min="1" max="${ASSESSMENT_WEEKS}" data-assessment-field="week" value="${assessmentItem.week}" aria-label="Due week"></td>
         <td><input type="number" min="0" max="100" data-assessment-field="weight" value="${assessmentItem.weight}" aria-label="Weight percent"></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="mode">${escapeHtml(assessmentItem.mode)}</td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="purpose">${escapeHtml(assessmentItem.purpose || "")}</td>
@@ -2754,7 +2754,7 @@
         <td class="paper-cell"><b>${escapeHtml(paperItem ? paperCodeLabel(paperItem) : "Unassigned")} · ${assessmentItemCode(item)}</b></td>
         <td><select data-assessment-field="side" aria-label="Code side">${assessmentSideOptionsHtml(item)}</select></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="name">${escapeHtml(item.name)}</td>
-        <td><input type="number" min="1" max="${TEACHING_WEEKS}" data-assessment-field="week" value="${item.week}" aria-label="Due week"></td>
+        <td><input type="number" min="1" max="${ASSESSMENT_WEEKS}" data-assessment-field="week" value="${item.week}" aria-label="Due week"></td>
         <td><input type="number" min="0" max="100" data-assessment-field="weight" value="${item.weight}" aria-label="Weight percent"></td>
         <td class="editable-cell" contenteditable="true" data-assessment-field="mode">${escapeHtml(item.mode)}</td>
         <td class="editable-cell compact-edit" contenteditable="true" data-assessment-field="purpose">${escapeHtml(item.purpose || "")}</td>
@@ -2763,7 +2763,7 @@
         <td><button class="button danger-text" data-delete-assessment="${item.id}">Delete</button></td>
       </tr>`;
     }).join("");
-    byId("assessment-table").innerHTML = `<thead><tr><th>Paper</th><th>Code side</th><th>Assessment item</th><th>Teaching week</th><th>Weight %</th><th>Mode</th><th>Brief description</th><th>AI-ready</th><th>Diagnosis note</th><th></th></tr></thead><tbody>${rows}</tbody>`;
+    byId("assessment-table").innerHTML = `<thead><tr><th>Paper</th><th>Code side</th><th>Assessment item</th><th>Due week</th><th>Weight %</th><th>Mode</th><th>Brief description</th><th>AI-ready</th><th>Diagnosis note</th><th></th></tr></thead><tbody>${rows}</tbody>`;
 
     const evidenceHead = state.plos.map((plo) => `<th>${escapeHtml(plo.code)}</th>`).join("");
     const evidenceRows = state.assessments.map((item) => {
@@ -2779,7 +2779,7 @@
     renderPloEvidenceSummary();
     renderProgrammeEvidence();
 
-    const weeks = Array.from({ length: TEACHING_WEEKS }, (_, index) => index + 1);
+    const weeks = Array.from({ length: ASSESSMENT_WEEKS }, (_, index) => index + 1);
     byId("assessment-timeline").innerHTML = weeks.map((week) => {
       const items = state.assessments.filter((item) => Number(item.week) === week);
       return `<div class="week"><b>W${week}</b>${items.map((item) => {
@@ -3479,7 +3479,8 @@
     if (field.type === "select") {
       return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><select id="field-${field.name}" name="${field.name}">${field.options.map((option) => `<option value="${escapeHtml(option.value ?? option)}" ${(option.value ?? option) == field.value ? "selected" : ""}>${escapeHtml(option.label ?? option)}</option>`).join("")}</select></div>`;
     }
-    return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><input id="field-${field.name}" name="${field.name}" type="${field.type || "text"}" value="${value}" ${field.required ? "required" : ""}></div>`;
+    const bounds = field.type === "number" ? ["min", "max"].filter((key) => field[key] != null).map((key) => `${key}="${escapeHtml(field[key])}"`).join(" ") : "";
+    return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><input id="field-${field.name}" name="${field.name}" type="${field.type || "text"}" value="${value}" ${bounds} ${field.required ? "required" : ""}></div>`;
   }
 
   function switchView(view) {
@@ -3628,7 +3629,7 @@
         { name: "paperId", label: "Paper", value: initialPaperId, type: "select", options: state.papers.map((item) => ({ value: item.id, label: `${paperCodeLabel(item)} · ${item.title}` })) },
         { name: "name", label: "Assessment name", value: "", required: true },
         { name: "side", label: "Code side (for double-coded papers)", value: "Whole paper", type: "select", options: ASSESSMENT_SIDES },
-        { name: "week", label: "Due week", value: "6", type: "number" },
+        { name: "week", label: "Due week (1-15)", value: "6", type: "number", min: 1, max: ASSESSMENT_WEEKS },
         { name: "weight", label: "Weight %", value: "20", type: "number" },
         { name: "mode", label: "Mode", value: "" },
         { name: "purpose", label: "Brief description", value: "", type: "textarea" },
