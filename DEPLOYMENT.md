@@ -54,6 +54,14 @@ It is not a full login/role system. Do not use it for highly sensitive data unti
 
 To start another programme, use `New workspace` from an admin link. The app will ask for the programme name, create a separate cloud workspace, and switch to that new workspace's admin link.
 
+## Reviewer Comments
+
+Open the tab to review, then choose `Add comment`. Its target menu contains only that page and the blocks currently available on it, rather than whole-page shortcuts to other tabs. On Papers, select a paper first: comments on CLOs, learning activities, assessments, alignment maps, and the other paper blocks keep that paper's stable ID. A double-coded paper also offers its second-code section.
+
+`Review comments` still lists comments across the workspace and can filter by their target. Admin editing preserves an existing target even when the comment was opened from another tab. Existing comments and mapping data are unchanged; this update needs no database migration or new share links.
+
+Run `python3 tests/review-comments-browser.py` with Chrome installed to check fictional reviewer/admin flows on desktop and mobile. The test mocks cloud responses and never accesses production workspaces.
+
 ## External Standards Mapping
 
 The fourth tab, `External Accreditation`, maps the programme's existing PLOs to multiple standards sets. Each workspace keeps its own sets; existing workspaces start with an empty standards area. No Supabase schema change is required for this addition.

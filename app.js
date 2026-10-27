@@ -161,7 +161,7 @@
     copyEditLink: "Share this with people who should add or change mapping content during the workshop.",
     copyViewLink: "Share this with reviewers who should read the workspace and add comments without changing the mapping.",
     sessionName: "Your name is remembered in this browser. Use My name to change it. Comments, edit-presence warnings, and the admin log show this self-reported name.",
-    addComment: "Add review feedback for a page, paper, or specific block. Your name is remembered in this browser. View-only reviewers can comment without changing the mapping.",
+    addComment: "Open the tab you want to review, then choose Add comment. The menu lists that page and its blocks. On Papers, select a paper first; block comments stay attached to that paper. Your name is remembered in this browser. View-only reviewers can comment without changing the mapping.",
     reviewComments: "Read submitted comments and filter by the page, paper, or block they relate to. Admin links can also edit or delete comments.",
     comments: "Use comments for review feedback that should not directly change the team's mapping.",
     adminLog: "Admin-only record of recent edits, comments, and key changes. It helps trace who changed what and when.",
@@ -1125,6 +1125,9 @@
       { key: "assessment:programmeEvidence", title: w.assessment.programmeEvidenceTitle, selector: "#programme-evidence-title" },
       { key: "assessment:workload", title: w.assessment.workloadTitle, selector: "#student-workload-title" },
       { key: "paper:profile", title: "Paper Information", selector: "#paper-editor .editor-heading" },
+      { key: "paper:roles", title: "Programme Role / Contribution", selector: "#paper-editor [data-review-section='roles']" },
+      { key: "paper:plos", title: "Supported Programme Learning Outcomes", selector: "#paper-editor [data-review-section='plos']" },
+      { key: "paper:network", title: "Network Relationships", selector: "#paper-editor [data-review-section='network']" },
       { key: "paper:description", title: "Paper Description", selector: "#paper-editor [data-review-section='description']" },
       { key: "paper:clos", title: "Course Learning Outcomes", selector: "#paper-editor [data-review-section='clos']" },
       { key: "paper:activities", title: "Learning Activities", selector: "#paper-editor [data-review-section='activities']" },
@@ -1176,13 +1179,13 @@
   }
 
   function commentTargetOptions(selectedTarget = "") {
-    const view = $(".tab.active")?.dataset.view || "programme";
+    const view = $(".view.active")?.id.replace(/^view-/, "") || $(".tab.active")?.dataset.view || "programme";
     const page = `page:${view}`;
     const values = [page];
     if (view === "paper" && selectedPaperId) values.push(`paper:${encodeURIComponent(selectedPaperId)}`);
     commentBlockDefinitions().filter((block) => block.key.startsWith(`${view}:`) && $(block.selector))
       .forEach((block) => values.push(blockCommentTarget(block)));
-    ["programme", "assessment", "paper", "accreditation", "documents", "staff", "actions"].forEach((key) => values.push(`page:${key}`));
+    // Preserve an existing comment's target when an admin edits it from another tab.
     if (selectedTarget) values.push(selectedTarget);
     return [...new Set(values)].map((value) => ({ value, label: commentTargetLabel(value) }));
   }
@@ -1361,6 +1364,7 @@
       title: "Add Comment",
       fields: [
         { name: "reviewerName", type: "html", html: `<p class="comment-composer-help">Commenting as <b>${escapeHtml(sessionName || "Anonymous reviewer")}</b>. Your name is remembered in this browser.</p>` },
+        { name: "commentScope", type: "html", html: `<p class="comment-composer-help">Choose the whole page or a specific block below. To comment on another page, close this window and open that tab first.${options.some((option) => option.value.startsWith("paper:")) ? " Paper block comments are attached to the selected paper, identified by its code in the menu." : ""}</p>` },
         { name: "target", label: "Comment relates to", value: target || options[0]?.value || "Workspace", type: "select", options },
         ...commentBodyFields()
       ],
@@ -2672,9 +2676,9 @@
         <label class="field"><span>Review status</span><select data-paper-field="status">
           ${["Draft","In discussion","Ready"].map((status) => `<option ${item.status === status ? "selected" : ""}>${status}</option>`).join("")}
         </select></label>
-        <div class="field wide"><span>Programme role / contribution ${helpButton("paperRoles", "Programme role")}</span><div class="role-options">${roles}</div></div>
-        <div class="field wide"><span>Supported Programme Learning Outcomes ${helpButton("paperPloLinks", "Supported PLOs")}</span><div class="plo-badge-grid">${ploBadges}</div></div>
-        <div class="field wide"><span>Network relationships from Program page ${helpButton("paperNetwork", "Paper network relationships")}</span>
+        <div class="field wide"><span data-review-section="roles">Programme role / contribution ${helpButton("paperRoles", "Programme role")}</span><div class="role-options">${roles}</div></div>
+        <div class="field wide"><span data-review-section="plos">Supported Programme Learning Outcomes ${helpButton("paperPloLinks", "Supported PLOs")}</span><div class="plo-badge-grid">${ploBadges}</div></div>
+        <div class="field wide"><span data-review-section="network">Network relationships from Program page ${helpButton("paperNetwork", "Paper network relationships")}</span>
           ${paperNetworkHtml(item)}
         </div>
       </div>
