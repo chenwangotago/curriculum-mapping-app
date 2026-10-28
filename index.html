@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=41">
+  <link rel="stylesheet" href="styles.css?v=42">
 </head>
 <body>
   <header class="app-header">
@@ -36,6 +36,9 @@
       <button class="button ghost" id="add-comment-button" hidden>Add comment</button>
       <button class="help-tip" type="button" data-help-key="addComment" aria-label="Add comment help">?</button>
       <button class="button ghost" id="review-comments-button" hidden>Review comments</button>
+      <button class="button ghost" id="review-settings-button" hidden>External review settings</button>
+      <button class="button ghost" id="review-lead-button" hidden>Programme lead sign in</button>
+      <button class="button ghost" id="review-lead-logout-button" hidden>Sign out as programme lead</button>
       <button class="help-tip" type="button" data-help-key="reviewComments" aria-label="Review comments help">?</button>
       <button class="button ghost" id="activity-log-button" hidden>Admin log</button>
       <button class="help-tip" type="button" data-help-key="adminLog" aria-label="Admin log help">?</button>
@@ -65,6 +68,7 @@
     <button class="tab" data-view="actions">7. Actions</button>
   </nav>
 
+  <p class="review-access-notice" id="review-access-notice" hidden></p>
   <main>
     <section class="view active" id="view-programme">
       <div class="view-heading">
@@ -384,6 +388,6 @@
     <p id="help-popover-text"></p>
   </div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=48"></script>
+  <script src="app.js?v=49"></script>
 </body>
 </html>

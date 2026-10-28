@@ -1,6 +1,11 @@
 -- Additive setup for the private Documents library. Run once in Supabase SQL Editor.
 -- Existing mapping, comments, share links, and saved versions are not changed.
 begin;
+do $$ begin
+  if to_regclass('curriculum_private.review_settings') is not null then
+    raise exception 'Private reviewer access is installed. Use incremental document migrations to preserve its access resolver.';
+  end if;
+end; $$;
 
 create table if not exists public.curriculum_workspace_documents (
   id uuid primary key,

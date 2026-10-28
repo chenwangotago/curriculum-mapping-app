@@ -1,5 +1,12 @@
 -- Curriculum Mapping Workspace: private-link collaborative backend
 -- Run this in Supabase SQL Editor.
+-- Do not overwrite upgraded permissions with the legacy base schema.
+begin;
+do $$ begin
+  if to_regclass('curriculum_private.review_settings') is not null then
+    raise exception 'Private reviewer access is installed. Use its incremental migrations, not the legacy base schema.';
+  end if;
+end; $$;
 
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
@@ -750,3 +757,4 @@ grant execute on function public.list_curriculum_workspace_activity(text, text) 
 grant execute on function public.list_curriculum_workspace_presence(text, text) to anon;
 grant execute on function public.set_curriculum_workspace_presence(text, text, text, text, text, text) to anon;
 grant execute on function public.clear_curriculum_workspace_presence(text, text, text) to anon;
+commit;

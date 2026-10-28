@@ -21,7 +21,8 @@ BOOTSTRAP = r"""
 window.__reviewTest = { comments: [
   { id: 'legacy', author: 'Earlier reviewer', body: 'Existing whole-page feedback', target: '2. Assessments', createdAt: '2026-01-01' },
   { id: 'other-paper', author: 'Earlier reviewer', body: 'Existing other-paper feedback', target: 'block:paper:clos:p201', createdAt: '2026-01-01' }
-], calls: [], prompts: 0, allowMappingSaves: false, savedMapping: null };
+], calls: [], prompts: 0, allowMappingSaves: false, savedMapping: null,
+ settings: { hiddenTabs: [], hiddenBlocks: [], passwordConfigured: true }, leadActive: false };
 window.prompt = () => { window.__reviewTest.prompts++; return 'Fictional reviewer'; };
 window.alert = (message) => { throw new Error(message); };
 window.CURRICULUM_MAPPING_CONFIG = { supabaseUrl: location.origin, supabaseAnonKey: 'test-only' };
@@ -31,13 +32,44 @@ window.supabase = { createClient: () => ({
     qa.calls.push({ name, values });
     if (name === 'load_curriculum_workspace') {
       const role = new URLSearchParams(location.search).get('role');
-      return { data: { slug: 'fictional-review', data: structuredClone(qa.savedMapping || window.__reviewFixture),
-        canEdit: role !== 'reviewer', canManageTemplate: role === 'admin', updatedAt: '2026-01-01' } };
+      const data = structuredClone(qa.savedMapping || window.__reviewFixture);
+      const restricted = role === 'reviewer' && qa.settings.hiddenBlocks.includes('paper:activities');
+      const policy = structuredClone(qa.settings);
+      if (restricted) {
+        data.papers.forEach(p => Object.assign(p, { learningActivities: '', learningActivityItems: [], secondaryLearningActivities: '', secondaryLearningActivityItems: [], secondaryLearningOutcomes: '', secondaryCourseOutcomes: [], diagnosisNote: '', designAlignment: {} }));
+        policy.hiddenBlocks.push('paper:internal', 'paper:secondSide', 'paper:diagnosis');
+        policy.hiddenTabs.push('staff', 'actions');
+        data.actions = []; data.staffProfiles = {}; data.staffNotes = {}; data.notes = {}; data.noteActions = {};
+      }
+      if (role === 'reviewer' && policy.hiddenTabs.includes('assessment')) {
+        data.assessments = []; policy.hiddenBlocks.push('paper:assessments', 'paper:vertical');
+      }
+      return { data: { slug: 'fictional-review', data,
+        canEdit: role !== 'reviewer', canManageTemplate: role === 'admin', review: { ...policy, manager: values.access_token === 'review_test_lead' && qa.leadActive }, updatedAt: '2026-01-01' } };
     }
-    if (name === 'list_curriculum_workspace_comments') return { data: structuredClone(qa.comments) };
+    if (name === 'start_curriculum_review') return { data: { token: 'review_test_private' } };
+    if (name === 'list_curriculum_workspace_comments') {
+      const data = structuredClone(qa.comments.filter(c => (values.access_token === 'review_test_lead' && qa.leadActive) || c.reviewerId === values.access_token));
+      if (qa.deferLeadComments && values.access_token === 'review_test_lead') return await new Promise(resolve => { qa.resolveStaleLead = () => resolve({ data }); });
+      return { data };
+    }
+    if (name === 'login_curriculum_review_manager') {
+      if (values.manager_password !== 'Fictional-password-123!') return { data: { error: 'Password not recognised' } };
+      qa.leadActive = true; return { data: { token: 'review_test_lead' } };
+    }
+    if (name === 'curriculum_review_settings') {
+      if (values.next_settings) Object.assign(qa.settings, structuredClone(values.next_settings));
+      return { data: { ...structuredClone(qa.settings), frameworks: [], wording: window.__reviewFixture.wording } };
+    }
+    if (name === 'reply_curriculum_review_comment') {
+      const parent = qa.comments.find(c => c.id === values.comment_id);
+      const reply = { id: crypto.randomUUID(), parentId: parent.id, reviewerId: parent.reviewerId, author: 'Head (Programme lead)', body: values.comment_body, target: parent.target, createdAt: '2026-01-03' };
+      qa.comments.push(reply); return { data: structuredClone(reply) };
+    }
+    if (name === 'logout_curriculum_review') { qa.leadActive = false; return { data: null }; }
     if (name === 'create_curriculum_workspace_comment') {
       const comment = { id: crypto.randomUUID(), author: values.comment_author,
-        body: values.comment_body, target: values.comment_target, createdAt: '2026-01-02' };
+        body: values.comment_body, target: values.comment_target, createdAt: '2026-01-02', reviewerId: values.access_token };
       qa.comments.push(comment);
       return { data: structuredClone(comment) };
     }
@@ -50,6 +82,61 @@ window.supabase = { createClient: () => ({
   },
   functions: { invoke: async () => ({ data: { documents: [] } }) }
 }) };
+"""
+
+ACCESS_CHECKS = r"""
+(async () => {
+  const passed = [];
+  const check = (v, label) => { if (!v) throw new Error(label); passed.push(label); };
+  const $ = s => document.querySelector(s);
+  const tick = () => new Promise(r => setTimeout(r, 0));
+  const wait = async p => { for(let i=0;i<100;i++) { if(p()) return; await tick(); } throw new Error('Access UI timeout'); };
+  const close = () => $('#dialog-cancel-button').click();
+  const finish = error => { const pre = document.createElement('pre'); pre.id='review-test-results'; pre.textContent=JSON.stringify({passed:passed.length,error:error?.stack}); document.body.append(pre); };
+  try {
+    await wait(() => $('#cloud-status').classList.contains('readonly'));
+    check(!$('#review-lead-button').hidden && $('#review-settings-button').hidden, 'Reviewer has sign-in but no settings access');
+    $('#review-lead-button').click();
+    check($('#field-password').type === 'password', 'Programme lead password is masked');
+    $('#field-name').value = 'Fictional head'; $('#field-password').value='Fictional-password-123!';
+    $('#dialog-form').requestSubmit(); await wait(() => !$('#edit-dialog').open);
+    check($('#review-lead-button').hidden && !$('#review-settings-button').hidden && !$('#review-lead-logout-button').hidden, 'Lead sees settings and sign-out controls');
+    check($('#add-comment-button').hidden && !$('#review-comments-button').hidden, 'Lead replies through review instead of adding reviewer comments');
+    check(document.body.classList.contains('read-only') && $('#add-assessment-button').disabled, 'Lead cannot edit mapping');
+    $('#review-comments-button').click(); await wait(() => $('#edit-dialog').open && $('#dialog-title').textContent === 'Review Comments');
+    check($('#dialog-fields').textContent.includes('Existing whole-page feedback') && $('#dialog-fields').textContent.includes('Existing other-paper feedback'), 'Lead sees historical comments without assigning by name');
+    $('[data-comment-reply="legacy"]').click(); $('#field-body').value='Fictional private reply';
+    $('#dialog-form').requestSubmit(); await wait(() => !$('#edit-dialog').open);
+    check(window.__reviewTest.comments.some(c => c.body==='Fictional private reply' && c.parentId==='legacy'), 'Lead reply keeps original parent');
+    $('#review-settings-button').click(); await wait(() => $('#dialog-title').textContent === 'External Review Settings');
+    check(!$('[name="leadPassword"]'), 'Lead cannot reset the admin-owned password');
+    $('[name="block-paper:activities"]').checked=false;
+    $('[name="tab-assessment"]').checked=false;
+    $('#dialog-form').requestSubmit(); await wait(() => !$('#edit-dialog').open);
+    check($('.tab[data-view="assessment"]').hidden && $('.tab[data-view="staff"]').hidden && $('.tab[data-view="actions"]').hidden, 'Restricted and dependent tabs are hidden');
+    $('.tab[data-view="paper"]').click();
+    check($('#paper-editor [data-review-section="activities"]').closest('.paper-section').hidden, 'Learning activity block hidden after paper rerender');
+    check($('#paper-alignment-maps [aria-label="Internal alignment map"]').hidden, 'Dependent internal map hidden');
+    check($('#paper-editor [data-review-section="assessments"]').closest('.paper-section').hidden, 'Assessments cannot reappear through Papers');
+    $('[data-select-paper="p108"]').click();
+    check($('#paper-editor [data-review-section="secondSide"]').closest('.paper-section').hidden, 'Second-code design cannot reveal hidden activities');
+    check(!$('#paper-editor').textContent.includes('Practice activities with feedback'), 'Hidden activity text absent from rendered DOM');
+    const report = window.__reviewReport();
+    check(!report.includes('Practice activities with feedback') && !report.includes('Public-facing capstone'), 'Hidden activity and assessment text absent from PDF');
+    check(!report.includes('<h2>Assessment Items</h2>') && !report.includes('<h4>Internal Alignment Map</h4>'), 'PDF omits hidden sections');
+    $('#review-comments-button').click(); await wait(() => $('#edit-dialog').open && $('#dialog-title').textContent === 'Review Comments'); close();
+    window.__reviewTest.deferLeadComments = true;
+    $('#review-comments-button').click(); await wait(() => !!window.__reviewTest.resolveStaleLead);
+    $('#review-lead-logout-button').click(); await wait(() => !$('#review-lead-button').hidden);
+    window.__reviewTest.resolveStaleLead(); await tick(); await tick();
+    check(!$('#edit-dialog').open, 'Late privileged response cannot reopen the lead comments after sign out');
+    check($('#review-settings-button').hidden && $('#review-lead-logout-button').hidden, 'Sign out removes privileged controls');
+    $('#review-comments-button').click(); await wait(() => $('#edit-dialog').open && $('#dialog-title').textContent === 'Review Comments');
+    check(!$('#dialog-fields').textContent.includes('Existing whole-page feedback') && !$('#dialog-fields').textContent.includes('Fictional private reply'), 'Lead comments cleared after sign out');
+    check(!window.__reviewTest.calls.some(c => c.name==='save_curriculum_workspace'), 'Review settings and replies never overwrite mapping JSON');
+    finish();
+  } catch(error) { finish(error); }
+})();
 """
 
 CHECKS = r"""
@@ -111,6 +198,12 @@ CHECKS = r"""
     check(reportTable.querySelector('thead').textContent.includes('Brief description'), 'PDF assessment table uses the simplified label');
     check(reportTable.textContent.includes(oldAssessment.mode) && reportTable.textContent.includes(oldAssessment.purpose), 'PDF keeps both existing assessment text values');
     if (editable) {
+      check($('#review-settings-button').hidden === (role !== 'admin'), 'Only admin can set up review permissions from editing mode');
+      if (role === 'admin') {
+        $('#review-settings-button').click(); await waitFor(() => $('#dialog-title').textContent === 'External Review Settings');
+        check($('#field-leadPassword').type === 'password', 'Admin can set or reset a masked programme lead password');
+        close();
+      }
       for (const view of ['programme', 'assessment', 'paper', 'accreditation', 'documents', 'staff', 'actions']) {
         chooseTab(view);
         check($('#add-comment-button').hidden && $('#review-comments-button').hidden, `${view}: no toolbar comment buttons`);
@@ -177,6 +270,11 @@ CHECKS = r"""
     check(!$('#add-comment-button').hidden && !$('#review-comments-button').hidden, 'Read-only toolbar keeps comment buttons');
     for (const view of ['programme', 'assessment', 'paper', 'accreditation', 'documents', 'staff', 'actions']) {
       chooseTab(view); open();
+      if (view === 'programme') {
+        check($('#dialog-title').textContent === 'Your Reviewer Name', 'First comment requires a reviewer name');
+        $('#field-name').value = 'Fictional reviewer'; $('#dialog-form').requestSubmit();
+        await waitFor(() => $('#dialog-title').textContent === 'Add Comment');
+      }
       const targets = values();
       check(targets.includes(`page:${view}`), `${view}: whole-page choice`);
       check(targets.some(value => value.startsWith(`block:${view}:`)), `${view}: block choices`);
@@ -211,7 +309,9 @@ CHECKS = r"""
     chooseTab('assessment'); open();
     await save('block:assessment:workload', 'Feedback on student workload');
     check(qa.comments.at(-1).target === 'block:assessment:workload', 'Assessment block comment saves its target');
-    check(qa.prompts === 1, 'Reviewer name requested only once');
+    check(qa.prompts === 0, 'Subsequent comments reuse the browser name without repeated prompts');
+    check(qa.calls.filter(call => call.name === 'start_curriculum_review').length === 1, 'One private reviewer session is reused');
+    check(qa.calls.filter(call => call.name === 'create_curriculum_workspace_comment').every(call => call.values.access_token === 'review_test_private'), 'Comments use the private reviewer token, not the shared URL token');
 
     $('#session-name-button').click();
     $('#field-name').value = 'Fictional programme team member';
@@ -219,14 +319,14 @@ CHECKS = r"""
     await waitFor(() => !$('#edit-dialog').open);
     open();
     await save('block:assessment:workload', 'Programme team response to workload feedback');
-    check(qa.comments.at(-1).author === 'Fictional programme team member', 'Team can respond under their own name through the review link');
+    check(qa.comments.at(-1).author === 'Fictional programme team member', 'Self-reported display name can change without gaining access to other reviewers');
     check(qa.comments.filter(comment => comment.target === 'block:assessment:workload').length === 2, 'Feedback and team response share the same block');
     check(qa.comments.some(comment => comment.body === 'Feedback on student workload'), 'Responding does not replace reviewer feedback');
 
     $('#review-comments-button').click();
     await waitFor(() => $('#edit-dialog').open && $('#dialog-title').textContent === 'Review Comments');
-    check($('#dialog-fields').textContent.includes('Existing whole-page feedback'), 'Legacy whole-page comments are retained');
-    check($('#dialog-fields').textContent.includes('Existing other-paper feedback'), 'Existing paper comments are retained');
+    check(!$('#dialog-fields').textContent.includes('Existing whole-page feedback'), 'Unowned legacy comments are not exposed to reviewers');
+    check(!$('#dialog-fields').textContent.includes('Existing other-paper feedback'), 'Another reviewer comments are not exposed');
     check($('#field-reviewTarget').querySelector('option[value="block:paper:clos:p101"]'), 'Review filter includes saved paper block');
     $('#field-reviewTarget').value = 'block:paper:clos:p101';
     $('#field-reviewTarget').dispatchEvent(new Event('change', { bubbles: true }));
@@ -256,6 +356,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self.respond(BOOTSTRAP, "text/javascript")
         if path == "/review-checks.js":
             return self.respond(CHECKS, "text/javascript")
+        if path == "/access-checks.js":
+            return self.respond(ACCESS_CHECKS, "text/javascript")
         if path == "/app.js":
             source = (ROOT / "app.js").read_text()
             fixture = """
@@ -272,7 +374,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             source = source.replace("  let state = loadState();", fixture + "  let state = loadState();", 1)
             return self.respond(source, "text/javascript")
         if path == "/":
-            source = (ROOT / "index.html").read_text().replace("</body>", '<script src="/review-checks.js"></script></body>')
+            script = "access-checks" if "scenario=access" in self.path else "review-checks"
+            source = (ROOT / "index.html").read_text().replace("</body>", f'<script src="/{script}.js"></script></body>')
             return self.respond(source, "text/html")
         return super().do_GET()
 
@@ -298,9 +401,10 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        for role, width, height in [(role, width, height) for role in ("reviewer", "editor", "admin") for width, height in ((1440, 1000), (390, 844))]:
+        for role, width, height in [(role, width, height) for role in ("reviewer", "editor", "admin", "access") for width, height in ((1440, 1000), (390, 844))]:
             with tempfile.TemporaryDirectory(prefix="curriculum-review-qa-") as profile:
-                url = f"http://127.0.0.1:{server.server_port}/?workspace=fictional-review&token=test-only&role={role}"
+                query = "role=reviewer&scenario=access" if role == "access" else f"role={role}"
+                url = f"http://127.0.0.1:{server.server_port}/?workspace=fictional-review&token=test-only&{query}"
                 result = subprocess.run([chrome, "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check", f"--user-data-dir={profile}", f"--window-size={width},{height}", "--virtual-time-budget=10000", "--dump-dom", url], capture_output=True, text=True, timeout=45)
                 match = re.search(r'<pre id="review-test-results">(.*?)</pre>', result.stdout, re.S)
                 if not match:

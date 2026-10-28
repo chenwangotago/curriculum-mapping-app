@@ -42,6 +42,142 @@
     pollTimer: null,
     activeSavePromise: null
   };
+  const reviewAccess = { token: "", manager: false, author: "", passwordConfigured: false, hiddenTabs: [], hiddenBlocks: [] };
+
+  function effectiveAccessToken() {
+    return reviewAccess.token || cloud.token;
+  }
+
+  function reviewVisible(key) {
+    return !cloud.enabled || cloud.canEdit || (!reviewAccess.hiddenTabs.includes(key.split(":")[0]) && !reviewAccess.hiddenBlocks.includes(key));
+  }
+
+  async function loadReviewSession(payload) {
+    if (payload.canEdit) return payload;
+    const key = workspaceScopedKey("curriculum-private-review-v1");
+    let token = sessionStorage.getItem(`${key}:lead`) || localStorageGet(key);
+    if (token) {
+      const response = await cloud.client.rpc("load_curriculum_workspace", { workspace_slug: cloud.workspace, access_token: token });
+      if (!response.error && response.data && !response.data.canEdit) {
+        reviewAccess.token = token;
+        return response.data;
+      }
+      sessionStorage.removeItem(`${key}:lead`);
+      token = localStorageGet(key);
+      if (token) {
+        const response = await cloud.client.rpc("load_curriculum_workspace", { workspace_slug: cloud.workspace, access_token: token });
+        if (!response.error && response.data && !response.data.canEdit) {
+          reviewAccess.token = token;
+          return response.data;
+        }
+      }
+    }
+    const response = await cloud.client.rpc("start_curriculum_review", { workspace_slug: cloud.workspace, access_token: cloud.token });
+    if (response.error || !response.data?.token) throw response.error || new Error("Unable to start a private review session");
+    reviewAccess.token = response.data.token;
+    localStorageSet(key, reviewAccess.token);
+    return payload;
+  }
+
+  function applyReviewVisibility() {
+    const external = cloud.enabled && !cloud.canEdit;
+    $$("[data-review-hidden]").forEach((node) => { node.hidden = false; node.removeAttribute("data-review-hidden"); });
+    const hide = (node) => { if (node) { node.hidden = true; node.setAttribute("data-review-hidden", ""); } };
+    $$(".tab").forEach((tab) => { tab.hidden = external && !reviewVisible(`${tab.dataset.view}:page`); });
+    $$(".view").forEach((view) => { if (external && !reviewVisible(`${view.id.slice(5)}:page`)) hide(view); });
+    if (!external) return;
+    commentBlockDefinitions().forEach((block) => {
+      if (reviewVisible(block.key)) return;
+      const anchor = $(block.selector);
+      if (block.key === "paper:profile") {
+        $$("#paper-editor > .field-grid > label, #paper-editor .double-code-hint").forEach(hide);
+        return;
+      }
+      const container = anchor?.closest(".workspace-section, .paper-section, .internal-map, .external-framework, .field.wide");
+      hide(container || anchor);
+    });
+    // The maps use their own section wrapper rather than paper-section.
+    if (!reviewVisible("paper:vertical")) hide($('#paper-alignment-maps [aria-label="Vertical alignment validation"]'));
+    if (!reviewVisible("paper:internal")) hide($('#paper-alignment-maps [aria-label="Internal alignment map"]'));
+    if (!reviewVisible("paper:activities")) hide($("#paper-editor [data-design-items='secondaryActivities']"));
+    if ($(".tab.active")?.hidden) {
+      const first = $(".tab:not([hidden])");
+      $$(".tab").forEach((tab) => tab.classList.toggle("active", tab === first));
+      $$(".view").forEach((view) => view.classList.toggle("active", view.id === `view-${first?.dataset.view}`));
+    }
+  }
+
+  async function openReviewSettings() {
+    try {
+      const result = await callReviewRpc("curriculum_review_settings", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken() });
+      if (!result) return;
+      const blocks = commentBlockDefinitions().filter((block) => !block.key.startsWith("accreditation:framework-"));
+      (result.frameworks || []).forEach((f) => blocks.push({ key: `accreditation:framework-${encodeURIComponent(f.id)}`, title: f.name }));
+      const tabs = Object.keys(DEFAULT_WORDING.tabs);
+      openDialog({
+        title: "External Review Settings", eyebrow: "Programme lead / Admin",
+        fields: [
+          { type: "html", html: `<p>These settings affect only external review links, not the team's editing workspace. Untick to hide. Source information is removed from the review response, including connected maps and JSON/PDF exports. Basic paper codes and titles remain visible wherever a paper is referenced.</p><p>For safety, any restriction also hides Staff and Actions summaries. Hiding a source block can close dependent maps. Hiding a derived chart alone does not remove its otherwise visible source data. Review free text that may manually quote hidden content. Previously downloaded or viewed information cannot be recalled.</p>${result.effective?.hiddenTabs?.length ? `<p><b>Currently unavailable, including dependent tabs:</b> ${result.effective.hiddenTabs.map((tab) => escapeHtml(result.wording?.tabs?.[tab] || DEFAULT_WORDING.tabs[tab] || tab)).join(", ")}</p>` : ""}` },
+          { type: "html", html: tabs.map((tab) => `<details class="review-visibility-group" open><summary>${escapeHtml(result.wording?.tabs?.[tab] || DEFAULT_WORDING.tabs[tab])}</summary>
+            <label><input type="checkbox" name="tab-${tab}" ${result.hiddenTabs.includes(tab) ? "" : "checked"}> Make this tab available</label>
+            ${blocks.filter((b) => b.key.startsWith(`${tab}:`)).map((b) => `<label><input type="checkbox" name="block-${escapeHtml(b.key)}" ${result.hiddenBlocks.includes(b.key) ? "" : "checked"}> ${escapeHtml(b.title)}</label>`).join("")}</details>`).join("") },
+          ...(cloud.canManageTemplate ? [{ name: "leadPassword", label: result.passwordConfigured ? "Reset programme lead password (leave blank to keep it)" : "Set programme lead password (12 to 72 bytes)", type: "password", value: "" }, { type: "html", html: "<p>Give this password only to the Head of Programme, separately from the review link. Anyone with it has programme lead permissions. Resetting it signs out existing programme lead sessions. Names are self-reported, not verified identities.</p>" }] : [])
+        ],
+        submitLabel: "Save review settings",
+        async onSave(values) {
+          const next = { hiddenTabs: tabs.filter((tab) => !values[`tab-${tab}`]), hiddenBlocks: blocks.filter((b) => !values[`block-${b.key}`]).map((b) => b.key) };
+          const saved = await callReviewRpc("curriculum_review_settings", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken(), next_settings: next, new_password: values.leadPassword || null });
+          if (!saved) throw new Error("Review settings not saved");
+          await reloadReviewWorkspace();
+          toast("External review settings saved; mapping data is unchanged");
+        }
+      });
+    } catch (error) { toast(`Unable to open review settings: ${error.message}`); }
+  }
+
+  async function reloadReviewWorkspace() {
+    const { data, error } = await cloud.client.rpc("load_curriculum_workspace", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken() });
+    if (error) throw error;
+    applyCloudPayload(data);
+    cloud.lastUpdatedAt = data.updatedAt || "";
+    renderAll(); updateShareButtons();
+    reviewComments = []; reviewCommentsWorkspace = "";
+    await fetchReviewComments(true);
+  }
+
+  function openReviewLeadLogin() {
+    openDialog({
+      title: "Programme Lead Sign In", eyebrow: "External review",
+      fields: [
+        { name: "name", label: "Your name", value: sessionName, required: true },
+        { name: "password", label: "Programme lead password", type: "password", required: true },
+        { type: "html", html: "<p>Your administrator sets this password using the admin link. The password grants access to all reviewer comments and review visibility settings, but not editing of the programme mapping.</p>" }
+      ], submitLabel: "Sign in",
+      async onSave(values) {
+        const result = await callReviewRpc("login_curriculum_review_manager", { workspace_slug: cloud.workspace, access_token: cloud.token, manager_password: values.password, manager_name: values.name });
+        if (!result?.token) { toast(result?.error || "Sign in failed"); throw new Error(result?.error || "Sign in failed"); }
+        reviewAccess.token = result.token;
+        sessionStorage.setItem(`${workspaceScopedKey("curriculum-private-review-v1")}:lead`, result.token);
+        await reloadReviewWorkspace();
+        toast("Signed in as programme lead for this tab (up to 8 hours)");
+      }
+    });
+  }
+
+  async function logoutReviewLead() {
+    try {
+      await callReviewRpc("logout_curriculum_review", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken() });
+      sessionStorage.removeItem(`${workspaceScopedKey("curriculum-private-review-v1")}:lead`);
+      reviewAccess.token = ""; reviewAccess.manager = false;
+      reviewComments = []; reviewCommentsWorkspace = ""; commentReviewTarget = "";
+      closeDialog(); byId("dialog-fields").replaceChildren();
+      const { data, error } = await cloud.client.rpc("load_curriculum_workspace", { workspace_slug: cloud.workspace, access_token: cloud.token });
+      if (error) throw error;
+      applyCloudPayload(await loadReviewSession(data));
+      reviewComments = []; reviewCommentsWorkspace = "";
+      renderAll(); updateShareButtons(); await fetchReviewComments(true);
+    } catch (error) { toast(`Sign out failed: ${error.message}`); }
+  }
   const ROLE_OPTIONS = [
     "Gateway or Foundation",
     "Core disciplinary spine",
@@ -1187,7 +1323,7 @@
     const page = `page:${view}`;
     const values = [page];
     if (view === "paper" && selectedPaperId) values.push(`paper:${encodeURIComponent(selectedPaperId)}`);
-    commentBlockDefinitions().filter((block) => block.key.startsWith(`${view}:`) && $(block.selector))
+    commentBlockDefinitions().filter((block) => block.key.startsWith(`${view}:`) && reviewVisible(block.key) && $(block.selector))
       .forEach((block) => values.push(blockCommentTarget(block)));
     // Preserve an existing comment's target when an admin edits it from another tab.
     if (selectedTarget) values.push(selectedTarget);
@@ -1202,6 +1338,7 @@
     commentBlockDefinitions().forEach((block) => {
       const anchor = $(block.selector);
       if (!anchor) return;
+      if (!reviewVisible(block.key)) { anchor.nextElementSibling?.matches(".review-block-tools") && anchor.nextElementSibling.remove(); return; }
       let tools = anchor.nextElementSibling?.matches(".review-block-tools") ? anchor.nextElementSibling : null;
       const target = blockCommentTarget(block);
       const count = currentWorkspaceComments().filter((comment) => comment.target === target).length;
@@ -1210,9 +1347,10 @@
         tools.className = "review-block-tools";
         anchor.insertAdjacentElement("afterend", tools);
       }
-      tools.innerHTML = `<button type="button" class="review-block-button" data-add-block-comment="${escapeHtml(target)}" aria-label="Add comment: ${escapeHtml(commentTargetLabel(target))}">Add comment</button>
+      tools.innerHTML = `${reviewAccess.manager ? "" : `<button type="button" class="review-block-button" data-add-block-comment="${escapeHtml(target)}" aria-label="Add comment: ${escapeHtml(commentTargetLabel(target))}">Add comment</button>`}
         <button type="button" class="review-block-button" data-review-block-comments="${escapeHtml(target)}" aria-label="Review comments: ${escapeHtml(commentTargetLabel(target))}">Review comments (${count})</button>`;
     });
+    applyReviewVisibility();
   }
 
   function reviewCommentHtml() {
@@ -1222,7 +1360,7 @@
       <article class="comment-card">
         <div class="comment-card-header">
           <div>
-            <b>${escapeHtml(comment.author || "Anonymous reviewer")}</b>
+            <b>${escapeHtml(comment.author || "Earlier reviewer")}${comment.parentId ? " · Reply" : ""}</b>
             <small>${escapeHtml(commentTargetLabel(comment.target || "Workspace"))} · ${escapeHtml(formatSnapshotTimestamp(new Date(comment.createdAt || Date.now())))}</small>
           </div>
           ${cloud.canManageTemplate ? `
@@ -1233,6 +1371,7 @@
           ` : ""}
         </div>
         <p>${escapeHtml(comment.body || "")}</p>
+        ${reviewAccess.manager && !comment.parentId ? `<button class="mini-button" type="button" data-comment-reply="${escapeHtml(comment.id)}">Reply privately to this reviewer</button>` : ""}
       </article>
     `).join("")}</div>`;
   }
@@ -1241,6 +1380,7 @@
     const targets = new Set(currentWorkspaceComments().map((comment) => comment.target || "Workspace"));
     if (commentReviewTarget) targets.add(commentReviewTarget);
     return [
+      { type: "html", html: `<p>${reviewAccess.manager ? "Programme lead: all reviewer comments are visible here. Replies are shared only with the original reviewer's browser. Earlier comments without a private reviewer identity remain visible only to the lead/admin." : "Only your comments and replies from the programme lead are shown. Your private reviewer identity is remembered in this browser for this workspace. Other reviewers cannot see your comments. Use the same browser to return; a name alone cannot recover comments on another device."}</p>` },
       { name: "reviewTarget", label: "Show comments for", type: "select", value: commentReviewTarget, options: [
         { value: "", label: "All comments in this workspace" },
         ...[...targets].map((value) => ({ value, label: commentTargetLabel(value) }))
@@ -1256,11 +1396,12 @@
 
   async function fetchReviewComments(silent = false) {
     const workspace = cloud.workspace;
+    const token = effectiveAccessToken();
     const data = await callReviewRpc("list_curriculum_workspace_comments", {
       workspace_slug: cloud.workspace,
-      access_token: cloud.token
+      access_token: token
     }, { silent });
-    if (Array.isArray(data) && workspace === cloud.workspace) {
+    if (Array.isArray(data) && workspace === cloud.workspace && token === effectiveAccessToken()) {
       reviewComments = data;
       reviewCommentsWorkspace = workspace;
       renderBlockCommentButtons();
@@ -1269,12 +1410,13 @@
   }
 
   async function createReviewComment(values) {
-    const author = ensureSessionName("add review comments");
+    const author = sessionName;
+    if (!author || author === "Anonymous reviewer") throw new Error("Please enter your name before adding a comment.");
     const body = String(values.body || "").trim();
     if (!body) throw new Error("Please enter a comment before saving.");
     const data = await callReviewRpc("create_curriculum_workspace_comment", {
       workspace_slug: cloud.workspace,
-      access_token: cloud.token,
+      access_token: effectiveAccessToken(),
       comment_author: author,
       comment_body: body,
       comment_target: values.target || currentViewLabel()
@@ -1353,13 +1495,23 @@
   function commentBodyFields(body = "") {
     return [
       { name: "body", label: "Comment", value: body, type: "textarea", required: true },
-      { name: "commentHelp", type: "html", html: `<p class="comment-composer-help"><span data-comment-counter>${Array.from(body).length} characters</span> · No fixed word limit. Multiple paragraphs are welcome.</p>` }
+      { name: "commentHelp", type: "html", html: `<p class="comment-composer-help"><span data-comment-counter>${Array.from(body).length} characters</span> · Up to 20,000 characters. Multiple paragraphs are welcome.</p>` }
     ];
   }
 
   async function openAddComment(target = "") {
     if (!canUseReviewComments()) return toast("Use this workspace's read-only link to add or review comments.");
-    ensureSessionName("add review comments");
+    if (reviewAccess.manager) return toast("Use Review comments to reply privately to a reviewer.");
+    if (!sessionName || sessionName === "Anonymous reviewer") {
+      openDialog({ title: "Your Reviewer Name", eyebrow: "External review", fields: [
+        { name: "name", label: "Your name (remembered in this browser)", required: true },
+        { type: "html", html: "<p>Your name is self-reported. Comments are private to your browser identity and the programme lead, not to other reviewers. Use your own browser profile, not a shared computer profile.</p>" }
+      ], submitLabel: "Continue", onSave(values) {
+        if (!String(values.name || "").trim()) throw new Error("Please enter your name");
+        setSessionName(values.name); window.setTimeout(() => openAddComment(target), 0);
+      } });
+      return;
+    }
     reviewBackendAvailable = true;
     const options = commentTargetOptions(target);
     openDialog({
@@ -1386,11 +1538,12 @@
 
   async function openReviewComments(target = "") {
     if (!canUseReviewComments()) return toast("Use this workspace's read-only link to add or review comments.");
-
+    const token = effectiveAccessToken();
     commentReviewTarget = target;
     reviewBackendAvailable = true;
     try {
       await fetchReviewComments();
+      if (token !== effectiveAccessToken()) return;
       openDialog({
         kind: "reviewComments",
         eyebrow: cloud.canManageTemplate ? "Admin review" : "Review",
@@ -1401,6 +1554,20 @@
     } catch (error) {
       alert(`Unable to open comments: ${error.message}`);
     }
+  }
+
+  function openReplyReviewComment(commentId) {
+    if (!reviewAccess.manager) return;
+    const comment = currentWorkspaceComments().find((c) => c.id === commentId && !c.parentId);
+    if (!comment) return;
+    openDialog({ title: `Reply to ${comment.author}`, eyebrow: "Private programme lead reply", fields: [
+      { type: "html", html: `<p>${escapeHtml(comment.body)}</p>${comment.parentId == null ? "<p>The reply is available only to this reviewer's original browser identity and the programme lead. Comments created before private review identities were introduced cannot be delivered back automatically.</p>" : ""}` },
+      ...commentBodyFields()
+    ], submitLabel: "Send private reply", async onSave(values) {
+      const result = await callReviewRpc("reply_curriculum_review_comment", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken(), comment_id: commentId, comment_body: values.body });
+      if (!result) throw new Error("Reply not saved");
+      await fetchReviewComments(true); toast("Private reply saved");
+    } });
   }
 
   function activityLogHtml() {
@@ -1557,7 +1724,8 @@
       });
       if (error) throw error;
 
-      applyCloudPayload(data);
+      const sessionPayload = await loadReviewSession(data);
+      applyCloudPayload(sessionPayload);
       cloud.enabled = true;
       cloud.loaded = true;
       cloud.canEdit = Boolean(data.canEdit);
@@ -1570,6 +1738,7 @@
       cloud.lastUpdatedAt = data.updatedAt || "";
       reviewBackendAvailable = true;
       refreshSessionIdentity();
+      if (!cloud.canEdit && sessionPayload.review?.author && !sessionPayload.review?.manager) setSessionName(sessionPayload.review.author);
       selectedPaperId = state.papers[0]?.id || null;
       renderAll();
       updateShareButtons();
@@ -1587,6 +1756,7 @@
 
   function applyCloudPayload(payload) {
     cloud.applyingRemote = true;
+    Object.assign(reviewAccess, { manager: false, author: "", passwordConfigured: false, hiddenTabs: [], hiddenBlocks: [] }, payload.review || {});
     state = normaliseState(payload.data || payload);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -1785,7 +1955,7 @@
     try {
       const { data, error } = await cloud.client.rpc("load_curriculum_workspace", {
         workspace_slug: cloud.workspace,
-        access_token: cloud.token
+        access_token: effectiveAccessToken()
       });
       if (error) throw error;
       if (data.updatedAt && data.updatedAt !== cloud.lastUpdatedAt) {
@@ -1799,6 +1969,15 @@
     } catch (error) {
       console.warn("Cloud polling failed", error);
       setCloudStatus("Cloud sync paused", "error");
+      if (!cloud.canEdit && /invalid|denied|expired/i.test(error.message || "")) {
+        // Fail closed on password reset, session expiry or link revocation.
+        reviewComments = []; reviewAccess.manager = false;
+        closeDialog();
+        byId("dialog-fields").replaceChildren();
+        state = blankWorkspaceState("Review session ended. Reload this link to continue.", clone(DEFAULT_WORDING));
+        renderAll(); updateShareButtons(); clearInterval(cloud.pollTimer);
+        toast("Review session ended. Reload this link to continue.");
+      }
     }
   }
 
@@ -1837,9 +2016,16 @@
     editButton.hidden = !(cloud.enabled && cloud.canManageTemplate && (cloud.editToken || cloud.token));
     viewButton.hidden = !(cloud.enabled && cloud.canManageTemplate && cloud.viewToken);
     sessionButton.hidden = !cloud.enabled;
-    addCommentButton.hidden = !canUseReviewComments();
+    addCommentButton.hidden = !canUseReviewComments() || reviewAccess.manager;
     reviewCommentsButton.hidden = !canUseReviewComments();
     activityButton.hidden = !(cloud.enabled && cloud.canManageTemplate);
+    byId("review-settings-button").hidden = !(cloud.enabled && cloud.loaded && (cloud.canManageTemplate || reviewAccess.manager));
+    byId("review-lead-button").hidden = !canUseReviewComments() || reviewAccess.manager;
+    byId("review-lead-logout-button").hidden = !reviewAccess.manager;
+    byId("versions-button").hidden = cloud.enabled && !cloud.canEdit;
+    const notice = byId("review-access-notice");
+    notice.hidden = !canUseReviewComments();
+    notice.textContent = reviewAccess.manager ? "Programme lead review: you can see all reviewer comments, reply privately, and choose what is shared. Programme mapping remains read-only." : "External review: only your comments and the programme lead's replies are visible to you. Your reviewer identity is saved in this browser; names are self-reported.";
     sessionButton.textContent = sessionName ? `Name: ${sessionName}` : "My name";
     document.body.classList.toggle("read-only", cloud.enabled && !cloud.canEdit);
     const lockForReadOnly = cloud.enabled && !cloud.canEdit;
@@ -1853,6 +2039,7 @@
     setReadOnlyFields(lockForReadOnly);
     updateDocumentControls();
     renderBlockCommentButtons();
+    applyReviewVisibility();
   }
 
   function setReadOnlyFields(readOnly) {
@@ -1879,7 +2066,7 @@
   }
 
   function applyReadOnlyStateSoon() {
-    requestAnimationFrame(() => setReadOnlyFields(cloud.enabled && !cloud.canEdit));
+    requestAnimationFrame(() => { setReadOnlyFields(cloud.enabled && !cloud.canEdit); applyReviewVisibility(); });
   }
 
   function escapeHtml(value = "") {
@@ -2930,7 +3117,7 @@
   }
 
   function currentDocuments() {
-    return documentLibrary.workspace === cloud.workspace && documentLibrary.token === cloud.token ? documentLibrary.items : [];
+    return reviewVisible("documents:library") && documentLibrary.workspace === cloud.workspace && documentLibrary.token === effectiveAccessToken() ? documentLibrary.items : [];
   }
 
   function documentSizeLabel(bytes) {
@@ -2938,14 +3125,14 @@
   }
 
   function updateDocumentControls() {
-    const loaded = documentLibrary.loaded && documentLibrary.workspace === cloud.workspace && documentLibrary.token === cloud.token;
+    const loaded = documentLibrary.loaded && documentLibrary.workspace === cloud.workspace && documentLibrary.token === effectiveAccessToken();
     byId("upload-document-button").disabled = !cloud.enabled || !cloud.loaded || !cloud.canEdit || documentLibrary.loading || !loaded;
     byId("refresh-documents-button").disabled = !cloud.enabled || !cloud.loaded || documentLibrary.loading;
   }
 
   function renderDocuments() {
     const library = byId("documents-library");
-    const inWorkspace = documentLibrary.workspace === cloud.workspace && documentLibrary.token === cloud.token;
+    const inWorkspace = documentLibrary.workspace === cloud.workspace && documentLibrary.token === effectiveAccessToken();
     updateDocumentControls();
     if (!cloud.enabled || !cloud.loaded) {
       library.innerHTML = `<div class="empty-state">Open this programme's cloud workspace to upload or download documents. Files are not stored in this browser or in the public GitHub repository.</div>`;
@@ -2980,7 +3167,8 @@
 
   async function documentRequest(action, values = {}, file = null) {
     if (!cloud.enabled || !cloud.loaded || !cloud.client) throw new Error("Open a cloud workspace before using Documents.");
-    let body = { ...values, action, workspace: cloud.workspace, token: cloud.token };
+    if (!reviewVisible("documents:library")) throw new Error("Documents are not available for external review.");
+    let body = { ...values, action, workspace: cloud.workspace, token: effectiveAccessToken() };
     if (file) {
       const form = new FormData();
       Object.entries(body).forEach(([key, value]) => form.set(key, String(value ?? "")));
@@ -3001,7 +3189,8 @@
 
   async function refreshDocuments(silent = false) {
     if (!cloud.enabled || !cloud.loaded || !cloud.client) return renderDocuments();
-    const workspace = cloud.workspace, token = cloud.token;
+    if (!reviewVisible("documents:library")) { documentLibrary.items = []; return; }
+    const workspace = cloud.workspace, token = effectiveAccessToken();
     const sameWorkspace = documentLibrary.workspace === workspace && documentLibrary.token === token;
     if (documentLibrary.loading && sameWorkspace) return;
     if (!sameWorkspace) Object.assign(documentLibrary, { workspace, token, items: [], loaded: false, error: "" });
@@ -3010,12 +3199,12 @@
     if (!silent) renderDocuments();
     try {
       const result = await documentRequest("list");
-      if (request !== documentLibrary.request || workspace !== cloud.workspace || token !== cloud.token) return;
+      if (request !== documentLibrary.request || workspace !== cloud.workspace || token !== effectiveAccessToken() || !reviewVisible("documents:library")) return;
       documentLibrary.items = Array.isArray(result.documents) ? result.documents : [];
       documentLibrary.loaded = true;
       documentLibrary.error = "";
     } catch (error) {
-      if (request !== documentLibrary.request || workspace !== cloud.workspace || token !== cloud.token) return;
+      if (request !== documentLibrary.request || workspace !== cloud.workspace || token !== effectiveAccessToken()) return;
       documentLibrary.error = error.message;
     } finally {
       if (request === documentLibrary.request) {
@@ -3484,6 +3673,7 @@
   }
 
   function switchView(view) {
+    if (!reviewVisible(`${view}:page`)) return;
     flushDeferredRender();
     $$(".tab").forEach((tab) => tab.classList.toggle("active", tab.dataset.view === view));
     $$(".view").forEach((element) => element.classList.toggle("active", element.id === `view-${view}`));
@@ -4061,7 +4251,7 @@
       </section>`;
     }).join("");
 
-    return `<!doctype html>
+    return filterReviewReport(`<!doctype html>
       <html lang="en">
       <head>
         <meta charset="utf-8">
@@ -4128,7 +4318,34 @@
         <h2>Review Comments</h2>
         <table><thead><tr><th>Author</th><th>Target</th><th>Time</th><th>Comment</th></tr></thead><tbody>${commentsRows}</tbody></table>
       </body>
-      </html>`;
+      </html>`);
+  }
+
+  function filterReviewReport(html) {
+    if (!cloud.enabled || cloud.canEdit) return html;
+    const report = new DOMParser().parseFromString(html, "text/html");
+    const sections = {
+      "Programme Learning Outcomes": "programme:plos", "Program Alignment Matrix": "programme:alignment",
+      "Student Pathways And Programme Network": "programme:network", "Assessment Evidence Matrix": "assessment:evidence",
+      "Assessment Items": "assessment:items", "Paper Details": "paper:page", "Staff": "staff:summary", "Decisions And Actions": "actions:diagnosis"
+    };
+    [...report.querySelectorAll("h2")].forEach((heading) => {
+      const key = sections[heading.textContent] || (heading.textContent.includes("External") || heading.textContent.includes("Standards") ? "accreditation:page" : "");
+      if (!key || reviewVisible(key)) return;
+      let next = heading.nextElementSibling;
+      while (next && next.tagName !== "H2") { const following = next.nextElementSibling; next.remove(); next = following; }
+      heading.remove();
+    });
+    const paperRows = { "Role / contribution": "roles", "Supported PLOs": "plos", "Network relationships": "network", "Paper description": "description", "Course Learning Outcomes": "clos", "Learning Activities": "activities", "Key concepts": "concepts", "Assessment": "assessments", "Diagnosis note": "diagnosis", "Second-side CLOs": "secondSide", "Second-side learning activities": "secondSide", "Second-side assessment notes": "secondSide" };
+    report.querySelectorAll(".paper-print-block tr").forEach((row) => {
+      const section = paperRows[row.querySelector("th")?.textContent];
+      if (section && !reviewVisible(`paper:${section}`)) row.remove();
+    });
+    report.querySelectorAll(".paper-print-block h4").forEach((heading) => {
+      const key = heading.textContent === "Internal Alignment Map" ? "paper:internal" : heading.textContent === "Vertical Alignment Validation" ? "paper:vertical" : "";
+      if (key && !reviewVisible(key)) { heading.nextElementSibling?.remove(); heading.remove(); }
+    });
+    return `<!doctype html>${report.documentElement.outerHTML}`;
   }
 
   async function preparePrint() {
@@ -4662,6 +4879,8 @@
     if (addBlockComment) return void openAddComment(addBlockComment.dataset.addBlockComment);
     const reviewBlockComments = event.target.closest("[data-review-block-comments]");
     if (reviewBlockComments) return void openReviewComments(reviewBlockComments.dataset.reviewBlockComments);
+    const replyComment = event.target.closest("[data-comment-reply]");
+    if (replyComment) return openReplyReviewComment(replyComment.dataset.commentReply);
     const helpClose = event.target.closest("[data-help-close]");
     if (helpClose) return closeHelpPopover();
 
@@ -5248,6 +5467,9 @@
   });
   byId("add-comment-button").addEventListener("click", () => openAddComment());
   byId("review-comments-button").addEventListener("click", () => openReviewComments());
+  byId("review-settings-button").addEventListener("click", openReviewSettings);
+  byId("review-lead-button").addEventListener("click", openReviewLeadLogin);
+  byId("review-lead-logout-button").addEventListener("click", logoutReviewLead);
   byId("activity-log-button").addEventListener("click", openActivityLog);
   byId("save-snapshot-button").addEventListener("click", saveSnapshot);
   byId("versions-button").addEventListener("click", openVersions);

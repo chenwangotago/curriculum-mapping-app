@@ -166,3 +166,91 @@ The template can still be changed after cloud deployment.
 - UI/layout/text changes: update the GitHub Pages files and redeploy.
 - Small data-model additions: add defaults in `normaliseState()` so existing programme workspaces continue to load.
 - Major data-model changes: create a migration or keep an old template version available for programmes already in progress.
+# Private External Review Access
+
+Production approval was provided on 28 October 2026. The additive migration has
+been applied, and the transactional database isolation/redaction tests passed.
+Local browser tests use fictional data. Release checks and the fail-closed pause
+procedure below are required for subsequent permission changes too.
+
+## Access Model
+
+- The existing admin and editing URLs retain full mapping data and edit permissions.
+  Add/Review Comments remain absent from editing pages.
+- The shared external review URL remains the same. Each browser receives a separate,
+  random 256-bit reviewer secret, scoped to that programme and the current view token.
+  Only that browser's comments and the programme lead's replies are returned by SQL.
+  Changing the self-reported name never grants another person's comments.
+- A reviewer enters a name before the first comment; it is remembered locally.
+  Browser identity is not verified personal identity. Use a separate browser profile
+  on shared computers. Switching devices, clearing storage, or the one-year session
+  expiry loses access to the old private thread; do not recover it by matching names.
+- Comments predating this upgrade have no secure reviewer owner. They are preserved
+  and visible to the programme lead/admin only, not automatically assigned by name.
+- The admin uses **External review settings** to set a programme-specific password
+  (12–72 bytes), then gives it separately to the Head of Programme. Do not put it in
+  a URL, email it alongside the URL, or send it to a coding assistant.
+- On the review URL, **Programme lead sign in** grants all-comment access, private
+  replies and visibility settings, but no mapping edit permission. Anyone holding
+  the password has those privileges; it does not prove their actual identity.
+  The opaque lead session is held in sessionStorage for at most eight hours.
+  Password reset revokes lead sessions; view-token rotation revokes all review sessions.
+  Ten failed attempts lock the programme's password check for 15 minutes. The owner
+  can reset it. Passwords are stored only as bcrypt hashes (cost 12).
+- New comments/replies allow 20,000 characters. Reviewer comments are limited to ten
+  per minute per session. Historical longer comments remain preserved.
+
+## Visibility and Connected Information
+
+The lead/admin chooses tabs and blocks available through the external review URL.
+The SQL loader returns a projected mapping, not full data with CSS hiding. JSON
+exports receive only this projection; PDF removes hidden sections too. Version
+snapshots are not available externally because they contain unredacted history.
+The Documents gateway resolver enforces visibility before listing or downloading.
+Previously issued download URLs may remain valid for up to their original 60 seconds.
+
+Source blocks are redacted everywhere they are connected. Hiding learning activities
+also closes the internal alignment map and second-code design block. Hiding assessment
+items (or the Assessments tab) removes assessments from Papers and the dependent maps.
+Basic paper codes, titles and levels remain visible where referenced. Hiding a
+derived chart alone does not redact otherwise available source fields. Any visibility
+restriction also closes Staff and Actions summaries conservatively to avoid derived
+text carrying hidden information. Reviewers cannot add/read comments on hidden targets.
+The lead can still read all comments, including those on now-hidden targets.
+
+This is structured-field redaction, not semantic text analysis: the team must review
+free-text passages that may manually quote hidden content. Nothing can revoke a
+download or screenshot already taken. Do not use this accountless portal for highly
+sensitive personal records; institutional sign-in/individual invitations would be a
+separate security upgrade.
+
+Visibility settings and password/session metadata are stored separately from mapping
+JSON. Changing them never saves a replacement `curriculum_workspaces.data` document.
+Mapping JSON export does not back up review sessions/settings, comments or attachments.
+
+## Release and Rollback
+
+1. Record workspace mapping hashes and take a secure database backup. Do not commit
+   programme data, share tokens or passwords to the public repository.
+2. After owner approval, apply `supabase-review-access.sql` via Supabase migration.
+   It adds private RLS-protected tables/nullable comment ownership columns, changes
+   review RPC authorization/projection, and preserves all mapping JSON and URLs.
+   No password is preconfigured and no tab is hidden by default.
+3. Run `tests/review-access.sql`. Its fictional workspaces, comments and sessions are
+   enclosed in a transaction and rolled back. It tests same-name reviewer isolation,
+   private replies, null/foreign tokens, source redaction, versions/Documents bypasses,
+   mapping preservation, login throttling, password reset and token rotation.
+4. Run `python3 tests/review-comments-browser.py` for desktop/mobile UI regressions.
+   Bump the frontend asset versions only after the SQL tests pass; publish together.
+   Older review tabs must refresh to establish their private reviewer identity.
+5. Compare mapping hashes, run security advisors and verify the deployed asset hashes.
+   Existing application capability-validated RPCs intentionally remain callable by
+   `anon`; internal helpers/tables and the document resolver are not public endpoints.
+6. If validation fails, apply `supabase-review-access-pause.sql`. This is a fail-closed
+   emergency rollback: external review stops, but editing/admin work continues and
+   every mapping/comment/review setting remains stored. Do not roll back to the old
+   all-comment/full-data view RPCs. Repair and reapply the new migration before reopening.
+
+For a fresh installation the order is base schema, Documents setup, then private
+review migration. The legacy base/Documents scripts now abort if the private-review
+module exists, preventing accidental replacement of its permission checks.
