@@ -186,29 +186,29 @@ button { cursor: pointer; }
   cursor: not-allowed;
 }
 
-body.read-only [contenteditable="true"],
-body.read-only [contenteditable="false"],
-body.read-only input,
-body.read-only textarea,
-body.read-only select {
+body.read-only main [contenteditable="true"],
+body.read-only main [contenteditable="false"],
+body.read-only main input,
+body.read-only main textarea,
+body.read-only main select {
   background: #f6f8fb;
 }
 
-body.read-only input,
-body.read-only textarea,
-body.read-only [contenteditable="false"] {
+body.read-only main input,
+body.read-only main textarea,
+body.read-only main [contenteditable="false"] {
   pointer-events: auto;
   cursor: text;
 }
 
-body.read-only textarea {
+body.read-only main textarea {
   overflow: hidden;
   resize: none;
 }
 
-body.read-only .editable-box,
-body.read-only .editable-cell,
-body.read-only .discussion-note {
+body.read-only main .editable-box,
+body.read-only main .editable-cell,
+body.read-only main .discussion-note {
   min-height: auto;
   white-space: pre-wrap;
 }
@@ -2049,6 +2049,7 @@ dialog::backdrop { background: rgba(13,29,46,.55); }
   transition: .2s ease;
 }
 .toast.show { opacity: 1; transform: translateY(0); }
+.dialog-error { padding: 12px; border: 1px solid #b83f59; border-radius: 8px; color: #8b253b; background: #fff3f5; white-space: pre-wrap; }
 
 .help-popover {
   position: fixed;

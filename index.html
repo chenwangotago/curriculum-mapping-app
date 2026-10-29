@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Collaborative curriculum mapping workspace for programme teams.">
   <title>Curriculum Mapping Workspace</title>
-  <link rel="stylesheet" href="styles.css?v=42">
+  <link rel="stylesheet" href="styles.css?v=43">
 </head>
 <body>
   <header class="app-header">
@@ -37,6 +37,7 @@
       <button class="help-tip" type="button" data-help-key="addComment" aria-label="Add comment help">?</button>
       <button class="button ghost" id="review-comments-button" hidden>Review comments</button>
       <button class="button ghost" id="review-settings-button" hidden>External review settings</button>
+      <button class="button ghost" id="review-lead-access-button" hidden>Programme lead access</button>
       <button class="button ghost" id="review-lead-button" hidden>Programme lead sign in</button>
       <button class="button ghost" id="review-lead-logout-button" hidden>Sign out as programme lead</button>
       <button class="help-tip" type="button" data-help-key="reviewComments" aria-label="Review comments help">?</button>
@@ -372,6 +373,7 @@
         </div>
         <button class="icon-button" type="button" id="dialog-close-button" aria-label="Close">×</button>
       </div>
+      <p class="dialog-error" id="dialog-error" role="alert" tabindex="-1" hidden></p>
       <div id="dialog-fields"></div>
       <div class="dialog-actions">
         <button class="button danger-text" type="button" id="dialog-delete-button">Delete</button>
@@ -388,6 +390,6 @@
     <p id="help-popover-text"></p>
   </div>
   <script src="config.js?v=2"></script>
-  <script src="app.js?v=49"></script>
+  <script src="app.js?v=50"></script>
 </body>
 </html>

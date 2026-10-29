@@ -22,7 +22,7 @@ window.__reviewTest = { comments: [
   { id: 'legacy', author: 'Earlier reviewer', body: 'Existing whole-page feedback', target: '2. Assessments', createdAt: '2026-01-01' },
   { id: 'other-paper', author: 'Earlier reviewer', body: 'Existing other-paper feedback', target: 'block:paper:clos:p201', createdAt: '2026-01-01' }
 ], calls: [], prompts: 0, allowMappingSaves: false, savedMapping: null,
- settings: { hiddenTabs: [], hiddenBlocks: [], passwordConfigured: true }, leadActive: false };
+ settings: { hiddenTabs: [], hiddenBlocks: [], passwordConfigured: true, leadUsername: 'fictional-lead' }, leadActive: false, leadPassword: 'Fictional-password-123!' };
 window.prompt = () => { window.__reviewTest.prompts++; return 'Fictional reviewer'; };
 window.alert = (message) => { throw new Error(message); };
 window.CURRICULUM_MAPPING_CONFIG = { supabaseUrl: location.origin, supabaseAnonKey: 'test-only' };
@@ -54,11 +54,13 @@ window.supabase = { createClient: () => ({
       return { data };
     }
     if (name === 'login_curriculum_review_manager') {
-      if (values.manager_password !== 'Fictional-password-123!') return { data: { error: 'Password not recognised' } };
+      if (!qa.settings.passwordConfigured) return { data: { error: 'The administrator must first set a programme lead password.' } };
+      if (values.manager_password !== qa.leadPassword || values.manager_name.toLowerCase() !== qa.settings.leadUsername.toLowerCase()) return { data: { error: 'Username or password not recognised' } };
       qa.leadActive = true; return { data: { token: 'review_test_lead' } };
     }
     if (name === 'curriculum_review_settings') {
       if (values.next_settings) Object.assign(qa.settings, structuredClone(values.next_settings));
+      if (values.new_password) { qa.leadPassword = values.new_password; qa.settings.passwordConfigured = true; }
       return { data: { ...structuredClone(qa.settings), frameworks: [], wording: window.__reviewFixture.wording } };
     }
     if (name === 'reply_curriculum_review_comment') {
@@ -96,10 +98,24 @@ ACCESS_CHECKS = r"""
   try {
     await wait(() => $('#cloud-status').classList.contains('readonly'));
     check(!$('#review-lead-button').hidden && $('#review-settings-button').hidden, 'Reviewer has sign-in but no settings access');
+    $('#session-name-button').click(); $('#field-name').value='Existing reviewer name';
+    $('#dialog-save-button').click(); await wait(() => !$('#edit-dialog').open);
     $('#review-lead-button').click();
     check($('#field-password').type === 'password', 'Programme lead password is masked');
-    $('#field-name').value = 'Fictional head'; $('#field-password').value='Fictional-password-123!';
-    $('#dialog-form').requestSubmit(); await wait(() => !$('#edit-dialog').open);
+    check($('#field-name').value === '' && $('#field-name').labels[0].textContent.includes('username'), 'Existing reviewer name is not used as the programme lead username');
+    check(!$('#field-name').readOnly && !$('#field-password').readOnly && !$('#dialog-save-button').disabled, 'Read-only mapping does not disable login fields or the sign-in button');
+    $('#field-name').value = 'fictional-lead'; $('#field-password').value='Fictional-password-123!';
+    window.__reviewTest.settings.passwordConfigured=false;
+    $('#dialog-save-button').click(); await wait(() => !$('#dialog-error').hidden && !$('#dialog-save-button').disabled);
+    check($('#dialog-error').textContent.includes('administrator must first set'), 'Missing saved password gives a visible setup explanation instead of an unresponsive button');
+    window.__reviewTest.settings.passwordConfigured=true;
+    $('#field-password').value='Incorrect-password';
+    $('#dialog-save-button').click(); await wait(() => !$('#dialog-error').hidden && !$('#dialog-save-button').disabled);
+    check($('#edit-dialog').open && $('#dialog-error').textContent.includes('Username or password'), 'Failed login is explained inside the open modal, not behind it');
+    check($('#dialog-save-button').textContent === 'Sign in', 'Failed login restores an enabled sign-in button');
+    $('#field-password').value='Fictional-password-123!';
+    $('#dialog-save-button').click(); await wait(() => !$('#edit-dialog').open);
+    check($('#session-name-button').textContent.includes('Existing reviewer name'), 'Signing in does not rename the reviewer identity');
     check($('#review-lead-button').hidden && !$('#review-settings-button').hidden && !$('#review-lead-logout-button').hidden, 'Lead sees settings and sign-out controls');
     check($('#add-comment-button').hidden && !$('#review-comments-button').hidden, 'Lead replies through review instead of adding reviewer comments');
     check(document.body.classList.contains('read-only') && $('#add-assessment-button').disabled, 'Lead cannot edit mapping');
@@ -200,8 +216,21 @@ CHECKS = r"""
     if (editable) {
       check($('#review-settings-button').hidden === (role !== 'admin'), 'Only admin can set up review permissions from editing mode');
       if (role === 'admin') {
+        qa.settings.passwordConfigured=false; qa.settings.leadUsername=null;
         $('#review-settings-button').click(); await waitFor(() => $('#dialog-title').textContent === 'External Review Settings');
-        check($('#field-leadPassword').type === 'password', 'Admin can set or reset a masked programme lead password');
+        check(!!$('[data-set-lead-access]'), 'Review settings link to the compact credential setup dialog');
+        $('[data-set-lead-access]').click(); await waitFor(() => $('#dialog-title').textContent === 'Set Programme Lead Access');
+        check($('#field-leadPassword').type === 'password' && $('#field-leadUsername').value === '' && $('#field-leadPassword').required, 'First-time admin setup requires both a username and a masked password');
+        $('#field-leadUsername').value='fictional-lead';
+        $('#field-leadPassword').value='short'; $('#dialog-save-button').click();
+        await waitFor(() => !$('#dialog-error').hidden && !$('#dialog-save-button').disabled);
+        check($('#dialog-error').textContent.includes('12'), 'Short password cannot silently fail to save');
+        check(!qa.calls.some(c => c.name==='curriculum_review_settings' && c.values.new_password), 'Invalid password is rejected before changing server settings');
+        $('#field-leadUsername').value='new-fictional-lead'; $('#field-leadPassword').value='New-fictional-password-123!';
+        $('#dialog-save-button').click(); await waitFor(() => $('#dialog-title').textContent === 'Programme Lead Access Saved');
+        check($('#dialog-fields').textContent.includes('new-fictional-lead') && !$('#dialog-fields').textContent.includes('New-fictional-password-123!'), 'Saved credentials are explicitly confirmed without displaying the password');
+        const credentials = qa.calls.find(c => c.name==='curriculum_review_settings' && c.values.new_password);
+        check(Object.keys(credentials.values.next_settings).join() === 'leadUsername', 'Credential setup does not submit or overwrite visibility settings');
         close();
       }
       for (const view of ['programme', 'assessment', 'paper', 'accreditation', 'documents', 'staff', 'actions']) {

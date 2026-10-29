@@ -187,14 +187,20 @@ procedure below are required for subsequent permission changes too.
   expiry loses access to the old private thread; do not recover it by matching names.
 - Comments predating this upgrade have no secure reviewer owner. They are preserved
   and visible to the programme lead/admin only, not automatically assigned by name.
-- The admin uses **External review settings** to set a programme-specific password
-  (12–72 bytes), then gives it separately to the Head of Programme. Do not put it in
+- The admin uses **Programme lead access** to set a programme-specific username and
+  password (12–72 bytes), then waits for **Programme Lead Access Saved**. This compact
+  dialog is also linked from **External review settings**. Give the credentials
+  separately to the Head of Programme. Do not put them in
   a URL, email it alongside the URL, or send it to a coding assistant.
 - On the review URL, **Programme lead sign in** grants all-comment access, private
   replies and visibility settings, but no mapping edit permission. Anyone holding
   the password has those privileges; it does not prove their actual identity.
   The opaque lead session is held in sessionStorage for at most eight hours.
   Password reset revokes lead sessions; view-token rotation revokes all review sessions.
+  Usernames are trimmed and case-insensitive, passwords are case-sensitive. Changing
+  a username requires a password reset and is admin-only. Legacy password-only setups
+  remain valid until the admin configures a username. The reviewer's **My name** is
+  separate and does not grant lead permissions.
   Ten failed attempts lock the programme's password check for 15 minutes. The owner
   can reset it. Passwords are stored only as bcrypt hashes (cost 12).
 - New comments/replies allow 20,000 characters. Reviewer comments are limited to ten
@@ -254,3 +260,22 @@ Mapping JSON export does not back up review sessions/settings, comments or attac
 For a fresh installation the order is base schema, Documents setup, then private
 review migration. The legacy base/Documents scripts now abort if the private-review
 module exists, preventing accidental replacement of its permission checks.
+
+## Lead Login Usability Fix, 29 October 2026
+
+The reported workspace had no saved programme lead password. A failed save/login
+was previously reported only through a toast behind the native modal, making the
+button appear unresponsive. Credential setup is now separate from visibility, with
+an explicit saved confirmation. Errors display inside the dialog; buttons show a
+pending label, recover on failure, and login has a 20-second response timeout.
+Read-only styling is scoped to mapping fields, not editable credential dialogs.
+
+For existing deployments apply `supabase-review-lead-login.sql`; for fresh installs,
+the full `supabase-review-access.sql` already includes username support. No passwords
+are chosen or reset by the migration, and no mapping, visibility, comment or link
+data is rewritten. The username is returned only by the existing admin/lead settings
+RPC, not by the public review loader. Database tests cover credential-only saves,
+case-insensitive usernames, incorrect-name rejection, legacy login, session revocation
+and unchanged visibility. Browser tests reproduce an already-named reviewer signing
+in, missing-configuration/incorrect-password errors, retry, explicit credential-save
+confirmation and private replies on desktop and mobile.

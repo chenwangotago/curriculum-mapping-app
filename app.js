@@ -117,22 +117,52 @@
       openDialog({
         title: "External Review Settings", eyebrow: "Programme lead / Admin",
         fields: [
+          ...(cloud.canManageTemplate ? [{ type: "html", html: `<p><b>Programme lead access:</b> ${result.passwordConfigured ? "Password saved." : "Not configured yet."} ${result.leadUsername ? `Username: <b>${escapeHtml(result.leadUsername)}</b>.` : ""}</p><button type="button" class="button" data-set-lead-access>Set username and password</button>` }] : []),
           { type: "html", html: `<p>These settings affect only external review links, not the team's editing workspace. Untick to hide. Source information is removed from the review response, including connected maps and JSON/PDF exports. Basic paper codes and titles remain visible wherever a paper is referenced.</p><p>For safety, any restriction also hides Staff and Actions summaries. Hiding a source block can close dependent maps. Hiding a derived chart alone does not remove its otherwise visible source data. Review free text that may manually quote hidden content. Previously downloaded or viewed information cannot be recalled.</p>${result.effective?.hiddenTabs?.length ? `<p><b>Currently unavailable, including dependent tabs:</b> ${result.effective.hiddenTabs.map((tab) => escapeHtml(result.wording?.tabs?.[tab] || DEFAULT_WORDING.tabs[tab] || tab)).join(", ")}</p>` : ""}` },
           { type: "html", html: tabs.map((tab) => `<details class="review-visibility-group" open><summary>${escapeHtml(result.wording?.tabs?.[tab] || DEFAULT_WORDING.tabs[tab])}</summary>
             <label><input type="checkbox" name="tab-${tab}" ${result.hiddenTabs.includes(tab) ? "" : "checked"}> Make this tab available</label>
             ${blocks.filter((b) => b.key.startsWith(`${tab}:`)).map((b) => `<label><input type="checkbox" name="block-${escapeHtml(b.key)}" ${result.hiddenBlocks.includes(b.key) ? "" : "checked"}> ${escapeHtml(b.title)}</label>`).join("")}</details>`).join("") },
-          ...(cloud.canManageTemplate ? [{ name: "leadPassword", label: result.passwordConfigured ? "Reset programme lead password (leave blank to keep it)" : "Set programme lead password (12 to 72 bytes)", type: "password", value: "" }, { type: "html", html: "<p>Give this password only to the Head of Programme, separately from the review link. Anyone with it has programme lead permissions. Resetting it signs out existing programme lead sessions. Names are self-reported, not verified identities.</p>" }] : [])
         ],
         submitLabel: "Save review settings",
         async onSave(values) {
           const next = { hiddenTabs: tabs.filter((tab) => !values[`tab-${tab}`]), hiddenBlocks: blocks.filter((b) => !values[`block-${b.key}`]).map((b) => b.key) };
-          const saved = await callReviewRpc("curriculum_review_settings", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken(), next_settings: next, new_password: values.leadPassword || null });
+          const saved = await callReviewRpc("curriculum_review_settings", { workspace_slug: cloud.workspace, access_token: effectiveAccessToken(), next_settings: next });
           if (!saved) throw new Error("Review settings not saved");
           await reloadReviewWorkspace();
           toast("External review settings saved; mapping data is unchanged");
         }
       });
     } catch (error) { toast(`Unable to open review settings: ${error.message}`); }
+  }
+
+  async function openProgrammeLeadAccess() {
+    if (!cloud.canManageTemplate) return;
+    try {
+      const current = await callReviewRpc("curriculum_review_settings", { workspace_slug: cloud.workspace, access_token: cloud.token });
+      if (!current) throw new Error("Unable to load programme lead access settings");
+      openDialog({
+        title: "Set Programme Lead Access", eyebrow: "Admin only",
+        fields: [
+          { type: "html", html: `<p>${current.passwordConfigured ? "A password is saved. Set a username and password here, or reset the existing credentials." : "No programme lead password has been saved yet."} These credentials are separate from the reviewer's display name.</p>` },
+          { name: "leadUsername", label: "Programme lead username", value: current.leadUsername || "", autocomplete: "username", required: true },
+          { name: "leadPassword", label: current.passwordConfigured && current.leadUsername ? "New password (leave blank to keep it)" : "Programme lead password", type: "password", autocomplete: "new-password", required: !current.passwordConfigured || !current.leadUsername },
+          { type: "html", html: "<p>Use at least 12 letters, numbers or symbols, up to 72 UTF-8 bytes. Click <b>Save programme lead access</b> below and wait for the saved confirmation. Give these credentials only to the programme lead, separately from the review link. Resetting them signs out existing lead sessions.</p>" }
+        ], submitLabel: "Save programme lead access", savingLabel: "Saving access...",
+        async onSave(values) {
+          const username = String(values.leadUsername || "").trim();
+          const password = String(values.leadPassword || "");
+          if (!username || username.length > 120) throw new Error("Enter a programme lead username of 1 to 120 characters.");
+          if (password && (new TextEncoder().encode(password).length < 12 || new TextEncoder().encode(password).length > 72)) throw new Error("Password not saved: use at least 12 letters, numbers or symbols (up to 72 UTF-8 bytes).");
+          if ((!current.passwordConfigured || username !== current.leadUsername) && !password) throw new Error("Enter a password when setting or changing the programme lead username.");
+          const saved = await callReviewRpc("curriculum_review_settings", { workspace_slug: cloud.workspace, access_token: cloud.token, next_settings: { leadUsername: username }, new_password: password || null });
+          if (!saved?.passwordConfigured || saved.leadUsername !== username) throw new Error("Programme lead access was not confirmed as saved. Please try again.");
+          await reloadReviewWorkspace();
+          openDialog({ title: "Programme Lead Access Saved", eyebrow: "Saved successfully", hideSave: true, fields: [
+            { type: "html", html: `<p>Username: <b>${escapeHtml(saved.leadUsername)}</b></p><p>The password is saved securely and is not displayed here. Open this programme's existing read-only link, click <b>Programme lead sign in</b>, and enter this username and password. You do not need to change <b>My name</b> first.</p><p>After signing in, <b>Review comments</b> shows all reviewer comments and offers private replies. Ordinary reviewers do not need these credentials.</p>` }
+          ] });
+        }
+      });
+    } catch (error) { toast(`Unable to open programme lead access: ${error.message}`); }
   }
 
   async function reloadReviewWorkspace() {
@@ -149,13 +179,21 @@
     openDialog({
       title: "Programme Lead Sign In", eyebrow: "External review",
       fields: [
-        { name: "name", label: "Your name", value: sessionName, required: true },
-        { name: "password", label: "Programme lead password", type: "password", required: true },
-        { type: "html", html: "<p>Your administrator sets this password using the admin link. The password grants access to all reviewer comments and review visibility settings, but not editing of the programme mapping.</p>" }
-      ], submitLabel: "Sign in",
+        { type: "html", html: `<p>Sign in with the programme lead credentials set by your administrator. Your reviewer display name does not control this login and does not need to be changed.</p>${reviewAccess.passwordConfigured ? "" : "<p><b>No programme lead password is currently saved for this workspace.</b> Ask the admin to open <b>Programme lead access</b>, set a username and password, and save them first.</p>"}` },
+        { name: "name", label: "Programme lead username", value: "", autocomplete: "username", required: true },
+        { name: "password", label: "Programme lead password", type: "password", autocomplete: "current-password", required: true },
+        { type: "html", html: "<p>This account can view all reviewer comments and reply privately, but cannot edit programme mapping. Older password-only setups can still sign in with a display name until the admin sets a username.</p>" }
+      ], submitLabel: "Sign in", savingLabel: "Signing in...",
       async onSave(values) {
-        const result = await callReviewRpc("login_curriculum_review_manager", { workspace_slug: cloud.workspace, access_token: cloud.token, manager_password: values.password, manager_name: values.name });
-        if (!result?.token) { toast(result?.error || "Sign in failed"); throw new Error(result?.error || "Sign in failed"); }
+        let timeout;
+        let result;
+        try {
+          result = await Promise.race([
+            callReviewRpc("login_curriculum_review_manager", { workspace_slug: cloud.workspace, access_token: cloud.token, manager_password: values.password, manager_name: String(values.name || "").trim() }),
+            new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("The server did not respond. Please check your connection and try signing in again.")), 20000); })
+          ]);
+        } finally { clearTimeout(timeout); }
+        if (!result?.token) throw new Error(result?.error || "Sign in failed. Please try again.");
         reviewAccess.token = result.token;
         sessionStorage.setItem(`${workspaceScopedKey("curriculum-private-review-v1")}:lead`, result.token);
         await reloadReviewWorkspace();
@@ -297,8 +335,8 @@
     copyEditLink: "Share this with people who should add or change mapping content during the workshop.",
     copyViewLink: "Share this with reviewers who should read the workspace and add comments without changing the mapping.",
     sessionName: "Your name is remembered in this browser. Use My name to change it. Comments, edit-presence warnings, and the admin log show this self-reported name.",
-    addComment: "Comments are available in the read-only review link, not in editing or admin views. Open the tab you want to review, then choose Add comment. On Papers, select a paper first. Programme team members can use the same read-only link to respond with a comment on the relevant block. Your name is remembered in this browser.",
-    reviewComments: "In the read-only review link, read submitted comments and filter by their page, paper, or block. Programme team members can use Add comment to respond on the same block without changing the mapping.",
+    addComment: "In the read-only link, Add comment records feedback for your private reviewer identity. Your name is remembered in this browser. Programme leads use Programme lead sign in to see all comments and reply; changing My name does not grant lead access.",
+    reviewComments: "Reviewers see only their own comments and the programme lead's private replies. After Programme lead sign in, the lead can see all comments, filter by page or block, and reply privately without changing the mapping.",
     comments: "Use comments for review feedback that should not directly change the team's mapping.",
     adminLog: "Admin-only record of recent edits, comments, and key changes. It helps trace who changed what and when.",
     saveVersion: "Save a restorable version inside this workspace. It is not a downloaded file; use Export JSON for a portable backup.",
@@ -2020,6 +2058,7 @@
     reviewCommentsButton.hidden = !canUseReviewComments();
     activityButton.hidden = !(cloud.enabled && cloud.canManageTemplate);
     byId("review-settings-button").hidden = !(cloud.enabled && cloud.loaded && (cloud.canManageTemplate || reviewAccess.manager));
+    byId("review-lead-access-button").hidden = !(cloud.enabled && cloud.loaded && cloud.canManageTemplate);
     byId("review-lead-button").hidden = !canUseReviewComments() || reviewAccess.manager;
     byId("review-lead-logout-button").hidden = !reviewAccess.manager;
     byId("versions-button").hidden = cloud.enabled && !cloud.canEdit;
@@ -3641,6 +3680,8 @@
     byId("dialog-eyebrow").textContent = config.eyebrow || "Edit";
     byId("dialog-title").textContent = config.title;
     byId("dialog-fields").innerHTML = config.fields.map(fieldHtml).join("");
+    byId("dialog-error").hidden = true;
+    byId("dialog-error").textContent = "";
     byId("dialog-delete-button").hidden = !config.onDelete;
     byId("dialog-delete-button").textContent = config.deleteLabel || "Delete";
     byId("dialog-cancel-button").textContent = config.cancelLabel || (config.hideSave ? "Close" : "Cancel");
@@ -3669,7 +3710,8 @@
       return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><select id="field-${field.name}" name="${field.name}">${field.options.map((option) => `<option value="${escapeHtml(option.value ?? option)}" ${(option.value ?? option) == field.value ? "selected" : ""}>${escapeHtml(option.label ?? option)}</option>`).join("")}</select></div>`;
     }
     const bounds = field.type === "number" ? ["min", "max"].filter((key) => field[key] != null).map((key) => `${key}="${escapeHtml(field[key])}"`).join(" ") : "";
-    return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><input id="field-${field.name}" name="${field.name}" type="${field.type || "text"}" value="${value}" ${bounds} ${field.required ? "required" : ""}></div>`;
+    const autocomplete = field.autocomplete ? `autocomplete="${escapeHtml(field.autocomplete)}" autocapitalize="none" spellcheck="false"` : "";
+    return `<div class="dialog-field"><label for="field-${field.name}">${field.label}</label><input id="field-${field.name}" name="${field.name}" type="${field.type || "text"}" value="${value}" ${bounds} ${autocomplete} ${field.required ? "required" : ""}></div>`;
   }
 
   function switchView(view) {
@@ -5374,6 +5416,7 @@
     if (!byId("edit-dialog").open) dialogContext = null;
   });
   byId("dialog-fields").addEventListener("click", (event) => {
+    if (event.target.closest("[data-set-lead-access]")) return void openProgrammeLeadAccess();
     const editButton = event.target.closest("[data-comment-edit]");
     if (editButton) {
       openEditReviewComment(editButton.dataset.commentEdit);
@@ -5390,7 +5433,9 @@
     const context = dialogContext;
     if (!context || context.saving) return;
     context.saving = true;
+    byId("dialog-error").hidden = true;
     byId("dialog-save-button").disabled = true;
+    byId("dialog-save-button").textContent = context.savingLabel || "Saving...";
     const values = Object.fromEntries(new FormData(event.currentTarget).entries());
     try {
       await context.onSave?.(values);
@@ -5400,9 +5445,18 @@
       }
     } catch (error) {
       console.error("Dialog save failed", error);
+      if (dialogContext === context) {
+        const message = byId("dialog-error");
+        message.textContent = error.message || "This change could not be saved. Please try again.";
+        message.hidden = false;
+        message.focus();
+      }
     } finally {
       context.saving = false;
-      if (dialogContext === context || !byId("edit-dialog").open) byId("dialog-save-button").disabled = false;
+      if (dialogContext === context || !byId("edit-dialog").open) {
+        byId("dialog-save-button").disabled = false;
+        byId("dialog-save-button").textContent = context.submitLabel || "Save";
+      }
     }
   });
 
@@ -5468,6 +5522,7 @@
   byId("add-comment-button").addEventListener("click", () => openAddComment());
   byId("review-comments-button").addEventListener("click", () => openReviewComments());
   byId("review-settings-button").addEventListener("click", openReviewSettings);
+  byId("review-lead-access-button").addEventListener("click", openProgrammeLeadAccess);
   byId("review-lead-button").addEventListener("click", openReviewLeadLogin);
   byId("review-lead-logout-button").addEventListener("click", logoutReviewLead);
   byId("activity-log-button").addEventListener("click", openActivityLog);
