@@ -2706,6 +2706,14 @@
   }
 
   function renderCanvas() {
+    const canvas = byId("pathway-canvas");
+    const wideCards = getWording().network.cardLayout === "wide";
+    canvas.classList.toggle("wide-paper-cards", wideCards);
+    canvas.closest(".canvas-shell")?.classList.toggle("wide-paper-cards", wideCards);
+    canvas.style.minWidth = wideCards
+      ? `${Math.max(1280, ...state.papers.map((item) => (Number(item.x) || 0) + 284))}px`
+      : "";
+    canvas.style.minHeight = "";
     const bands = getCanvasBands();
     const levelModeControl = byId("level-grouping-mode");
     if (levelModeControl) levelModeControl.value = levelGroupingMode();
@@ -2733,6 +2741,9 @@
         </div>
       </article>
     `).join("");
+    if (wideCards) {
+      canvas.style.minHeight = `${Math.max(680, ...[...cards.children].map((card) => card.offsetTop + card.offsetHeight + 24))}px`;
+    }
     requestAnimationFrame(drawConnections);
   }
 

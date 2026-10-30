@@ -85,6 +85,14 @@ The complete mapping is included in JSON backups, saved versions, and the PDF re
 
 ## Double-Coded / Dual-Level Papers
 
+Network cards retain the existing layout unless a workspace explicitly sets
+`wording.network.cardLayout` to `wide`. The opt-in layout uses 260px cards,
+unbroken paper codes, and a horizontally scrollable board on narrow screens. The
+canvas expands to include cards positioned beyond its original boundaries.
+This setting is carried through the existing review projection without changing
+permissions. Other workspaces are not migrated. Run
+`python3 tests/network-layout-browser.py` for isolated layout and I/D/A checks.
+
 Keep a double-coded paper as one record with two codes and levels. The Program matrix displays two cohort rows within one shared teaching-delivery group, so each code can have its own I/D/A judgements. The network still has one card, staff summaries count one teaching paper, and programme discussion notes remain shared.
 
 Existing shared judgements are copied into independent cohort rows and labelled as carried over. Review each cohort, edit its cells, or use `Confirm carried-over values` to retain its values after review. Changing or clearing one cohort does not change the other. Paper Details and the PDF display both code-specific contributions, and JSON backups and saved versions include both rows. No new links or Supabase schema migration are required.
